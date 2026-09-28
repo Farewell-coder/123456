@@ -1,0 +1,58 @@
+# ===== 构建产物 =====
+build/
+.gradle/
+app/release/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+*.hprof
+captures/
+
+# ===== 本地环境（含机器相关路径）=====
+local.properties
+gradle.properties
+
+# ===== 凭据（严禁提交）=====
+*.jks
+*.keystore
+*.pem
+*.p12
+*.key
+keystore.properties
+secrets.properties
+.env
+.env.*
+keys/
+
+# ===== IDE =====
+.idea/
+*.iml
+.vscode/
+
+# ===== 备份与临时 =====
+backups/
+*.bak
+*.bak_*
+*.orig
+*.log
+
+# ===== 开发/测试残留脚本 =====
+# 注意：t37.js / t42.js 是回归测试文件，必须保留，勿加 t3*.js / t4*.js 规则
+chk*.js
+t5*.js
+v2*.js
+fix*.js
+smoke.js
+domstub.js
+layout.js
+loadjs.js
+purge.js
+rt24.js
+verify_ev.js
+cleanup_residue.sh
+runall.sh
+runall_fast.sh
+tools/
+datapack/

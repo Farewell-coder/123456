@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>My Life, My Sim</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+<!-- ==================== 主界面 ==================== -->
+<section class="screen on" id="scMenu">
+  <div class="logo"><span class="lg1">My Life</span><span class="lg2">My Sim</span><span class="sub">My Life, My Simulation</span></div>
+  <div class="menu-list">
+    <button class="mbtn hide" id="mCont">继续游戏</button>
+    <button class="mbtn pri" id="mStart">开始游戏</button>
+    <button class="mbtn" id="mDex">图鉴 / 成就</button>
+    <button class="mbtn" id="mRec">历史战绩</button>
+    <button class="mbtn" id="mSet">设 置</button>
+  </div>
+</section>
+
+<!-- ==================== 模式选择 ==================== -->
+<section class="screen" id="scMode">
+  <div class="topbar">
+    <button class="tb" id="modeBack"><svg class="ic" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+    <div class="tt">选择模式<small>选择这局游戏的规则</small></div>
+  </div>
+  <div class="page">
+    <div class="card">
+      <div class="chead"><span class="dot"></span>游戏模式</div>
+      <p class="note">选择一种模式开始新的人生。后续会解锁更多模式。</p>
+      <div class="modeCol">
+        <button class="mbtn pri" id="modeEarth">地球online</button>
+        <button class="mbtn off" id="modeLocked" disabled>暂未开放 · 敬请期待</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 选天赋 ==================== -->
+<section class="screen" id="scTalent">
+  <div class="topbar">
+    <button class="tb" id="talBack"><svg class="ic" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+    <div class="tt">选择天赋<small id="talSub">已选 0 / 3</small></div>
+    <button class="tb" id="talSet"><svg class="ic" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
+  </div>
+  <div class="page page-talent">
+    <div class="card">
+      <div class="chead"><span class="dot"></span>抽到的天赋</div>
+      <div id="talPool"></div>
+      <p class="note">天赋带「双刃剑」效果：好处越强，隐藏代价越狠。选满 3 个继续。</p>
+    </div>
+  </div>
+  <div class="foot">
+    <div id="talBar">
+      <div class="remain" id="talRemain">还需选择 3 个天赋</div>
+      <div class="row">
+        <button class="btn gray" id="talReroll">重抽</button>
+        <button class="btn pri" id="talNext" disabled>分配属性</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 属性分配 ==================== -->
+<section class="screen" id="scAttr">
+  <div class="topbar">
+    <button class="tb" id="atBack"><svg class="ic" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+    <div class="tt">分配属性<small id="atSub">新手档</small></div>
+    <button class="tb" id="atSet"><svg class="ic" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
+  </div>
+  <div class="page page-attr">
+    <div class="card">
+      <div class="chead"><span class="dot"></span>难度档位</div>
+      <div class="diffrow" id="diffRow"></div>
+      <p class="note" id="diffNote"></p>
+    </div>
+    <div class="card">
+      <div class="pool"><b id="atPool">0</b><span>剩余点数</span></div>
+      <div class="life" id="atLife"></div>
+      <div id="atRows"></div>
+      <div class="hr"></div>
+      <div class="chead tight"><span class="dot"></span>已解锁被动</div>
+      <div class="pass" id="atPass"></div>
+      <p class="note">点「＋」加点，长按可连续加；点「−」可退回（长按连续退）。右上角是每点的消耗，突破 10 / 15 / 20 会解锁被动。</p>
+    </div>
+  </div>
+  <div class="foot">
+    <div class="row">
+      <button class="btn gray" id="btnUndo">撤销</button>
+      <button class="btn gray" id="atReset">一键重置</button>
+      <button class="btn pri" id="atStart">开始人生</button>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 人生推演 ==================== -->
+<section class="screen" id="scPlay">
+  <div class="topbar">
+    <button class="tb" id="plBack"><svg class="ic" viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg></button>
+    <div class="tt"><span id="plYear">0 岁</span><small id="plStage">幼年</small></div>
+    <button class="tb" id="plSet"><svg class="ic" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
+  </div>
+  <!-- 常驻信息条：在滚动区之外，滚日志时属性值不动 -->
+  <div class="playStatus">
+    <div class="chips" id="plTags"></div>
+    <div class="plA" id="plAttrs"></div>
+    <p class="note" id="plStatus">准备开始</p>
+  </div>
+  <div class="page page-play" id="playPage">
+    <ul id="log"></ul>
+    <!-- 死亡后先在这里就地总结，看完再点按钮才进结算页 -->
+    <div class="deathCard hide" id="deathCard"></div>
+  </div>
+  <div class="foot">
+    <div id="playbar">
+      <button class="pb" id="pbBack2">主页</button>
+      <button class="pb main" id="pbGo">暂停</button>
+      <button class="pb" id="pbSpd">1x</button>
+      <button class="pb" id="pbAgain">重开</button>
+    </div>
+    <div class="endbar hide" id="endbar">
+      <button class="pb" id="ebBack">主页</button>
+      <button class="pb main" id="ebSummary">立即总结这一生</button>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 结局 ==================== -->
+<section class="screen" id="scOver">
+  <div class="topbar">
+    <button class="tb" id="ovBack"><svg class="ic" viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg></button>
+    <div class="tt">人生结算<small id="ovSub"></small></div>
+    <button class="tb" id="ovSet"><svg class="ic" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
+  </div>
+  <div class="page">
+    <div class="card">
+      <div class="rank" id="ovRank">C</div>
+      <p class="note ctr" id="ovRankDesc"></p>
+    </div>
+    <div class="card">
+      <div class="chead"><span class="dot"></span>墓志铭</div>
+      <div class="epitaph" id="ovText"></div>
+    </div>
+    <div class="card">
+      <div class="chead"><span class="dot"></span>属性面板</div>
+      <div id="ovStats"></div>
+    </div>
+    <div class="card">
+      <div class="chead"><span class="dot"></span>深渊值</div>
+      <div class="abyss" id="ovAbyss"></div>
+    </div>
+    <div class="card">
+      <div class="chead"><span class="dot"></span>这一年几件事</div>
+      <div id="ovYears"></div>
+    </div>
+    <div class="card">
+      <div class="chead"><span class="dot"></span>人生标签</div>
+      <div class="chips" id="ovTags"></div>
+    </div>
+    <div class="card">
+      <div class="chead"><span class="dot"></span>AI 文案入库</div>
+      <div class="ovsw" id="ovAiDbRow">
+        <div><div class="st">把本局 AI 文案收进内容库</div>
+          <div class="sd" id="ovAiDbN">—</div></div>
+        <button class="ovOne" id="ovAiDbBtn">一键入库</button>
+      </div>
+    </div>
+  </div>
+  <div class="foot">
+    <div class="row">
+      <button class="btn gray" id="ovMenu">返回主界面</button>
+      <button class="btn pri" id="ovAgain">再活一世</button>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 图鉴 ==================== -->
+<section class="screen" id="scDex">
+  <div class="topbar">
+    <button class="tb" id="dxBack"><svg class="ic" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+    <div class="tt">图鉴 / 成就<small id="dxSub"></small></div>
+    <button class="tb" id="dxSet"><svg class="ic" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
+  </div>
+  <div class="page page-flat">
+    <div class="card">
+      <div class="chead"><span class="dot"></span>生涯成就</div>
+      <div id="dxAch"></div>
+    </div>
+    <div class="card">
+      <div class="chead"><span class="dot"></span>天赋图鉴 <span class="pill" id="dxTalCnt"></span></div>
+      <div id="dxTal"></div>
+    </div>
+    <div class="card">
+      <div class="chead"><span class="dot"></span>标签图鉴 <span class="pill" id="dxTagCnt"></span></div>
+      <div id="dxTag"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 历史战绩 ==================== -->
+<section class="screen" id="scRec">
+  <div class="topbar">
+    <button class="tb" id="rcBack"><svg class="ic" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+    <div class="tt">历史战绩<small id="rcSub"></small></div>
+    <button class="tb" id="rcSet"><svg class="ic" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
+  </div>
+  <div class="page page-flat">
+    <div id="rcList"></div>
+  </div>
+</section>
+
+</div>
+
+<!-- ==================== 设置弹窗 ==================== -->
+<div id="modal">
+  <div class="box">
+    <div class="bar">
+      <button class="bk" id="setBack"><svg class="ic" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+      <h2>设置</h2>
+    </div>
+    <div class="body">
+
+      <div class="card" data-ck="api">
+        <div class="chead tap"><span class="dot"></span>API 设置<span class="arw">▾</span></div>
+        <div class="fm">
+          <div class="lb2">模型配置 <span class="flr">
+            <button class="new" id="btnNewCfg">+ 新建</button>
+            <button class="new" id="btnRenCfg">改名</button>
+            <button class="new" id="btnDelCfg">删除</button>
+          </span></div>
+          <div class="hint">多套配置互不影响，可分别保存不同端点与密钥</div>
+          <div class="dsel" id="profSel"><button class="dval">默认配置</button><div class="dpanel"></div></div>
+          <button class="note acc" id="btnTest">⟳ 测试连接</button>
+          <p class="note" id="testNote"></p>
+        </div>
+        <div class="fm">
+          <div class="lb2">API 提供商</div>
+          <div class="hint">点击选择 API 提供商</div>
+          <div class="dsel" id="cfgProvider"><button class="dval">其他供应商（自定义）</button><div class="dpanel"></div></div>
+        </div>
+        <div class="fm">
+          <div class="lb2">API 端点</div>
+          <div class="hint">例如：https://api.openai.com/v1/chat/completions</div>
+          <input type="text" id="cfgBase" placeholder="https://api.example.com/v1" autocomplete="off">
+        </div>
+        <div class="fm">
+          <div class="lb2">API 密钥</div>
+          <div class="hint">输入 API 密钥</div>
+          <input type="password" id="cfgKey" placeholder="sk-..." autocomplete="off">
+        </div>
+        <div class="fm">
+          <div class="lb2">模型名称</div>
+          <div class="hint">例如：deepseek-v4-flash；点右侧图标拉取可用列表</div>
+          <div class="mrow">
+            <input type="text" id="cfgModel" placeholder="模型 ID" autocomplete="off">
+            <button class="ic" id="btnFetch">≡</button>
+          </div>
+          <div class="dsel hide" id="cfgModelSel"><button class="dval"></button><div class="dpanel"></div></div>
+        </div>
+        <p class="note" id="modelNote">Key 以明文保存在本机（导出时可选择打码），请勿在共享设备上使用，也勿导出含密钥的文件外发。</p>
+      </div>
+
+      <div class="card" data-ck="ai">
+        <div class="chead tap"><span class="dot"></span>AI 生成<span class="arw">▾</span></div>
+        <div class="sw"><div><div class="st">AI 辅助<small class="stsub">（让 AI 参与这局游戏的事件）</small></div>
+          <div class="sd">开启后 AI 可以主导事件、交互、天赋、结局、墓志铭的形成</div></div>
+          <div class="swx" id="cfgOn"><i></i></div></div>
+        <!-- cfgPrefetch 隐藏，强制开启 -->
+        <!-- cfgChoice 隐藏，强制开启 -->
+        <div class="fm mt16">
+          <div class="lb2">AI 占比 <span id="cfgAiV">50%</span></div>
+          <div class="hint">目标比例，尽量遵守但不硬卡；偏少时当年直接叫 AI，偏多时当年走本地</div>
+          <input type="range" id="cfgAi" min="0" max="100" step="25" value="50">
+          <div class="rk"><span>全本地</span><span>25%</span><span>50%</span><span>75%</span><span>全 AI</span></div>
+        </div>
+        </div>
+
+      <div class="card" data-ck="ui">
+        <div class="chead tap"><span class="dot"></span>外观与体验<span class="arw">▾</span></div>
+        <div class="fm">
+          <div class="lb2">背景模式</div>
+          <div class="hint">白天为浅色，夜晚为深蓝墨色，不刺眼；「跟随系统」只认系统深色开关</div>
+          <div class="seg" id="themeSeg">
+            <button data-th="light">白天</button>
+            <button data-th="dark">夜晚</button>
+            <button data-th="auto">跟随系统</button>
+          </div>
+        </div>
+        <div class="fm">
+          <div class="lb2">音量 <span class="pill" id="volVal">0%</span></div>
+          <div class="hint">推进年份时的提示音</div>
+          <input type="range" id="cfgVol" min="0" max="100" step="10">
+        </div>
+        <!-- spdSeg 隐藏，保持默认 420 -->
+        </div>
+
+      <div class="card" data-ck="save">
+        <div class="chead tap"><span class="dot"></span>存档管理<span class="arw">▾</span></div>
+        <div class="fm">
+          <div class="lb2">备份目录</div>
+          <div class="hint">导出/备份的 json 落到哪里。当前：<span id="dirNow">未选择（暂存「下载」）</span></div>
+          <div class="acts mt10">
+            <button class="ghost" id="btnDir">选择备份目录</button>
+          </div>
+        </div>
+        <div class="fm">
+          <div class="lb2">导出本地存档</div>
+          <div class="hint">把当前人生、图鉴、设置与内容数据存成 json 文件</div>
+          <div class="sw plain">
+            <div><div class="st">包含 API 密钥</div><div class="sd">默认打码，勾选后明文导出</div></div>
+            <div class="swx" id="expKey"><i></i></div>
+          </div>
+          <div class="acts mt6">
+            <button id="btnExport">导出到本地</button>
+          </div>
+        </div>
+        <div class="fm">
+          <div class="lb2">导入本地存档</div>
+          <div class="hint">选择之前导出的 json 文件恢复进度</div>
+          <div class="acts mt10">
+            <button class="ghost" id="btnImport">选择文件导入</button>
+          </div>
+          <input type="file" id="fileIn" accept=".json,application/json" class="hide">
+        </div>
+        <div class="fm">
+          <div class="lb2">数据管理</div>
+          <div class="hint">编辑事件 / 天赋 / 成就 / 结局 / 标签；五类字段格式各不相同，导入前请先看页面内「新增 / 导入」上方的格式说明</div>
+          <div class="acts mt10">
+            <button class="ghost" id="btnData">打开数据管理</button>
+          </div>
+        </div>
+        <div class="fm">
+          <div class="lb2">清空数据</div>
+          <div class="hint">删除存档、图鉴与全部本地设置，不可恢复</div>
+          <div class="acts mt10">
+            <button class="ghost" id="btnWipe">清除本地存档</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card aboutcard" id="cardAbout">
+        <div class="chead"><span class="dot"></span>关于<span class="arw">></span></div>
+      </div>
+      <!-- 底部「返回」已隐藏：左上角返回即可（元素保留，绑定不动） -->
+      <div class="card" id="cardBackSet" style="display:none">
+        <div class="acts">
+          <button id="btnBackSet">返回</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 关于页 ==================== -->
+<div id="aboutPage">
+  <div class="topbar">
+    <button class="tb" id="abBack"><svg class="ic" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+    <div class="tt">关于<small>关于本软件</small></div>
+    <button class="tb hid" id="abPh">·</button>
+  </div>
+  <div class="page page-flat">
+    <div class="card">
+      <div class="chead"><span class="dot"></span>My Life, My Sim</div>
+      <p class="note">一个纯前端、可离线运行的单文件文字人生模拟器。打开即玩，不用注册，也不必联网。</p>
+      <p class="note">每一次开局，天赋、属性与遭遇都重新洗过。开启 AI 后，由模型现场为你续写这一年的故事；关掉 AI，自带的事件库一样能陪你走完一生。所有数据都只留在这台设备上。</p>
+      <p class="note">玩法很简单：抽天赋 → 分配属性 → 一年一年地过 → 死亡时结算评级，附一段墓志铭。</p>
+      <p class="note">事件文案部分由 AI 生成，仅供娱乐。</p>
+    </div>
+    <div class="card">
+      <div class="chead"><span class="dot"></span>关于本软件</div>
+      <div class="abrows">
+        <div class="abrow"><span class="abk">作者</span><span class="abv">暂无</span></div>
+        <div class="abrow"><span class="abk">反馈群</span><span class="abv">暂无</span></div>
+        <div class="abrow"><span class="abk">版本</span><span class="abv"><b id="abVer">v0.1.2</b></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 调试面板（版本号连点 5 次进入） ==================== -->
+<div id="dbgPage">
+  <div class="topbar">
+    <button class="tb" id="dbgBack"><svg class="ic" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+    <div class="tt">调试<small>仅供排查问题</small></div>
+    <button class="tb" id="dbgRefresh"><svg class="ic" viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-8 8s3.58 8 8 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
+  </div>
+  <div class="page page-flat">
+    <div class="card">
+      <div class="chead"><span class="dot"></span>运行概览</div>
+      <div id="dbgBody"></div>
+    </div>
+    <div class="card">
+      <div class="chead"><span class="dot"></span>悬浮球</div>
+      <p class="note">在任意界面常驻一个小球，点一下就能展开调试面板、开无敌模式，或者直接结束这一局。</p>
+      <div class="sw tap" id="dgFloatRow">
+        <div><div class="st">启用悬浮球</div><div class="sd" id="dgFloatTip">在任意界面快速打开调试与无敌模式</div></div>
+        <div class="swx" id="dgFloat"><i></i></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="chead"><span class="dot"></span>运行日志</div>
+      <div class="dbglog" id="dbgLog">（空）</div>
+    </div>
+    <div class="card">
+      <div class="chead"><span class="dot"></span>完整数据库</div>
+      <p class="note">调试专用：进去后能同时看到「本地内置」与「导入 / AI 加入」的全部数据（数据管理页看不到本地条目，这里看得到）。只看不改。</p>
+      <div class="acts">
+        <button id="dbgDbOpen">打开数据库</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="chead"><span class="dot"></span>导出诊断</div>
+      <p class="note">把运行概览、日志、本地存档快照打成一个 zip，交给开发者排查。压缩包不包含 API 密钥。</p>
+      <div class="acts">
+        <button id="dbgCopy">复制文本</button>
+        <button class="ghost" id="dbgZip">导出压缩包</button>
+      </div>
+    </div>
+    <div class="card danger">
+      <div class="chead"><span class="dot"></span>危险区</div>
+      <p class="note">下面这些按钮会直接改动运行状态，仅在排查问题时使用。除「强制走本地事件」外，其余按钮只影响本次运行，退出重开即自动恢复。</p>
+      <p class="note" id="dgNow"></p>
+      <div class="sw tap" id="dgDevRow">
+        <div><div class="st">无敌模式</div><div class="sd">必定活到 200 岁 · 无限开局点数 · 可随时结束这一局</div></div>
+        <div class="swx" id="dgDev"><i></i></div>
+      </div>
+      <div class="dacts" id="dgDevActs">
+        <button id="dgEndLife">立即结束这一局</button>
+        <button id="dgAchAll">一键全成就</button>
+        <button id="dgAchClear">清空成就</button>
+      </div>
+      <div class="dacts">
+        <button id="dgFails">重置 AI 失败计数</button>
+        <button id="dgQueue">清空事件队列</button>
+        <button id="dgLocal">强制走本地事件</button>
+        <button id="dgLog">清空运行日志</button>
+        <button id="dgClick">重置连点计数</button>
+        <button id="dgState">打印当前状态</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 完整数据库（调试页入口 · 独立只读界面） ==================== -->
+<div id="dbgDb">
+  <div class="topbar">
+    <button class="tb" id="dbgDbBack"><svg class="ic" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+    <div class="tt">完整数据库<small>只读 · 本地 / 导入 / AI 加入</small></div>
+  </div>
+  <div class="page">
+    <div class="note" id="dbgDbCnt">—</div>
+    <div id="dbgDbList">（空）</div>
+  </div>
+</div>
+<!-- 单条内容弹窗（只读） -->
+<div id="dbgDlg">
+  <div class="dc">
+    <div class="dh">
+      <span class="dtag src0" id="dbgDlgTag">本地</span>
+      <span class="dtt" id="dbgDlgTt"></span>
+    </div>
+    <p class="dtx" id="dbgDlgTx"></p>
+    <p class="dmeta" id="dbgDlgMeta"></p>
+    <div class="dbody"><pre class="dj" id="dbgDlgJson"></pre></div>
+    <div class="da"><button id="dbgDlgOk">关闭</button></div>
+  </div>
+</div>
+<!-- ==================== 开局读条（需求 C） ==================== -->
+<div id="bootPage">
+  <div class="btitle">正在准备这一生</div>
+  <div class="bdots"><s></s><s></s><s></s></div>
+  <div class="bbar"><i id="bootBar"></i></div>
+  <div class="bpct" id="bootPct">0%</div>
+  <div class="btip" id="bootTip">正在生成人生大纲…</div>
+</div>
+<!-- ==================== 确认弹窗 ==================== -->
+<div id="dlg">
+  <div class="dc">
+    <h3 id="dlgT"></h3>
+    <p id="dlgD"></p>
+    <div class="da" id="dlgA"></div>
+
+    </div>
+  </div>
+
+<!-- 自定义输入弹窗（游戏风格，替代原生 prompt） -->
+<div id="dlgI" class="hide"></div>
+
+<!-- 事件分支选择不再有浮层容器：选项直接内联进日志流（见 doChoice） -->
+
+<!-- ==================== 数据管理 ==================== -->
+<div id="dbPage">
+  <div class="topbar">
+    <button class="tb" id="dbBack"><svg class="ic" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+    <div class="tt">数据管理<small id="dbSub">内容与文案</small></div>
+    <button class="tb" id="dbExp">导出</button>
+  </div>
+  <div class="page page-flat">
+    <div class="modebar" id="dbModeBar">
+      <button class="mfilter" id="dbModeBtn">
+        <span class="mf-ic">模式</span>
+        <span class="mf-tx" id="dbModeTx">地球online</span>
+        <span class="mf-ar">▾</span>
+      </button>
+      <div class="mfdrop" id="dbModeDrop">
+        <button class="mfopt on" data-m="earth">地球online<small>当前</small></button>
+        <button class="mfopt" data-m="__add" disabled>更多模式即将开放</button>
+      </div>
+    </div>
+    <div class="dbseg" id="dbSeg">
+      <button data-t="ev" class="on">事件</button>
+      <button data-t="choice">交互</button>
+      <button data-t="tal">天赋</button>
+      <!-- <button data-t="ach">成就</button> -->
+      <button data-t="end">结局</button>
+      <!-- <button data-t="tag">标签</button> -->
+      <button data-t="epitaph">墓志铭</button>
+</div>
+    <div class="card">
+      <div class="chead"><span class="dot"></span><span id="dbCnt">共 0 条</span></div>
+      <div class="dbhint">点条目可展开查看完整内容与字段；点分类标题可收起该组。导入前请先切到对应分类，各分类字段格式不同</div>
+      <div id="dbList"></div>
+    </div>
+    <div class="card" data-ck="db-add">
+      <div class="chead tap"><span class="dot"></span>新增 / 导入<span class="arw">▾</span></div>
+      <div class="cbody">
+        <p class="note" id="dbFmt"></p>
+        <textarea class="darea" id="dbInput" spellcheck="false" placeholder="在此粘贴按上方格式写好的 JSON。例如一行一条，或用 [ ] 包成数组。"></textarea>
+        <div class="acts mt10">
+          <button id="dbAdd">添加</button>
+          <button class="ghost" id="dbImp">导入</button>
+        </div>
+      </div>
+    </div>
+    <div class="card" data-ck="db-out">
+      <div class="chead tap"><span class="dot"></span>导出<span class="arw">▾</span></div>
+      <div class="cbody">
+        <p class="note">导出当前分类全部数据（带字段名的 JSON），可离线编辑后再导入。</p>
+        <div class="dbpre hide" id="dbOut"></div>
+        <div class="acts mt10">
+          <button id="dbCopy">生成预览</button>
+          <button class="ghost" id="dbFile">导出为文件</button>
+        </div>
+      </div>
+    </div>
+    <div class="card" data-ck="db-tk">
+      <div class="chead tap"><span class="dot"></span>文本体检<span class="arw">▾</span>
+        <button class="tkrun" id="dbTkRun">开始体检</button></div>
+      <div class="cbody">
+        <p class="note">一站式处理你自己条目的两件事：检查内容是否重复，以及标注每条事件偏向哪项属性。</p>
+        <div class="tkgrid" id="tkStat"></div>
+        <div class="acts mt12">
+          <button id="dbDedup"><span class="abt">重复检测</span><span class="abd">找出内容重复的条目</span></button>
+          <button class="ghost" id="dbAffFill"><span class="abt">同步偏向</span><span class="abd">对未分类条目做分类（AI 优先，规则兜底）</span></button>
+        </div>
+        <p class="note mt9">点右上角「开始体检」一步跑完：<b>① 重复检测</b>（意思相同即算重复，命中后只删你那一条，删前逐条确认）→ <b>② 同步偏向</b>（给还没分类的条目做分类：判定它讲的是哪一项隐藏能力，并算出它要求角色具备多少分才会发生）。也可以只用下面某一个按钮分步处理。</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="js/00-config.js"></script>
+<script src="js/01-data.js"></script>
+<script src="js/02-core.js"></script>
+<script src="js/03-logic.js"></script>
+<script src="js/04-ai.js"></script>
+<script src="js/05-main.js"></script>
+</body>
+</html>

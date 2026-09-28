@@ -1,0 +1,57 @@
+plugins {
+    id 'com.android.application'
+}
+
+// 发布签名口令从工程外的 keystore.properties 读取，不写入版本库
+def keystorePropsFile = rootProject.file('../keys/keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
+android {
+    namespace 'com.life.restart'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.life.restart"
+        minSdk 26
+        targetSdk 34
+        versionCode 5
+        versionName "0.1.2"
+        resConfigs "zh", "en"
+    }
+    signingConfigs {
+        release {
+            // 发布签名（自签 keystore），请妥善保管该文件，后续升级必须用同一份
+            if (keystorePropsFile.exists()) {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
+    }
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled false
+            shrinkResources false
+            signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+dependencies {
+}
