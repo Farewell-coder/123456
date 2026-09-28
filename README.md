@@ -69,16 +69,19 @@ hn_events.min.json          事件库数据源
 ---
 
 ## 构建
-
 需要 Android SDK 与 JDK 17：
-
 ```bash
-gradle assembleRelease
+./gradlew assembleRelease
 ```
 
 签名配置从工程外的 `keystore.properties` 读取（见 `app/build.gradle`），该文件不入库。
-
 最低支持 Android 8.0（API 26），目标 API 34。
+
+---
+## 下载与更新
+- 发布包：见 [Releases](https://github.com/Farewell-coder/My-Life-My-Sim/releases)
+- 更新日志：[CHANGELOG.md](CHANGELOG.md)
+- 发版流程（含签名配置）：[.github/RELEASE_SETUP.md](.github/RELEASE_SETUP.md)
 
 ---
 

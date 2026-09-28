@@ -1,0 +1,212 @@
+name: Build Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的 tag（形如 v0.0.2）。留空则用当前分支名'
+        required: false
+        default: ''
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version from tag
+        id: version
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="${INPUT_TAG}"
+          fi
+          if [ -z "$TAG" ]; then
+            echo "::error::手动触发时必须填写 tag（例如 v0.0.2）"
+            exit 1
+          fi
+          # 只接受 v<major>.<minor>.<patch>，可带 -beta / +build 之类后缀
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "::error::tag 必须形如 v1.2.3（后缀可选），收到：$TAG"
+            exit 1
+          fi
+          VERSION_NAME="${TAG#v}"
+          CORE="${VERSION_NAME%%[-+]*}"
+          MAJOR="${CORE%%.*}"
+          REST="${CORE#*.}"
+          MINOR="${REST%%.*}"
+          PATCH="${REST#*.}"
+          # 与既有约定一致：0.0.1 -> 1
+          VERSION_CODE=$(( MAJOR * 10000 + MINOR * 100 + PATCH ))
+          {
+            echo "tag=$TAG"
+            echo "version_name=$VERSION_NAME"
+            echo "version_code=$VERSION_CODE"
+          } >> "$GITHUB_OUTPUT"
+          echo "发布版本：$VERSION_NAME (versionCode $VERSION_CODE)"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - name: Cache Gradle
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::缺少签名 Secrets，请先按 .github/RELEASE_SETUP.md 配置"
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "${GITHUB_WORKSPACE}/release.jks"
+          if [ ! -s "${GITHUB_WORKSPACE}/release.jks" ]; then
+            echo "::error::KEYSTORE_BASE64 解码失败，请确认是完整的 base64 内容"
+            exit 1
+          fi
+          # app/build.gradle 读的是 rootProject.file('../keys/keystore.properties')，即工程同级的 keys/
+          mkdir -p "${GITHUB_WORKSPACE}/../keys"
+          cat > "${GITHUB_WORKSPACE}/../keys/keystore.properties" <<EOF
+          storeFile=${GITHUB_WORKSPACE}/release.jks
+          storePassword=${KEYSTORE_PASSWORD}
+          keyAlias=${KEY_ALIAS}
+          keyPassword=${KEY_PASSWORD}
+          EOF
+          chmod 600 "${GITHUB_WORKSPACE}/release.jks" "${GITHUB_WORKSPACE}/../keys/keystore.properties"
+          keytool -list -keystore "${GITHUB_WORKSPACE}/release.jks" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" > /dev/null
+          echo "签名配置就绪"
+
+      - name: Sync version into sources
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        run: |
+          set -e
+          GRADLE=app/build.gradle
+          CONFIG=app/src/main/assets/js/00-config.js
+          HTML=app/src/main/assets/index.html
+          JAVA=app/src/main/java/com/life/restart/MainActivity.java
+
+          # 1) Android 侧版本号
+          sed -i -E "s/^([[:space:]]*)versionCode[[:space:]]+[0-9]+/\1versionCode ${VERSION_CODE}/" "$GRADLE"
+          sed -i -E "s/^([[:space:]]*)versionName[[:space:]]+\"[^\"]*\"/\1versionName \"${VERSION_NAME}\"/" "$GRADLE"
+
+          # 2) 游戏内版本号（全工程唯一来源，同时决定存档键前缀）
+          sed -i -E "s/^const GAME_VER = '[^']*';/const GAME_VER = '${VERSION_NAME}';/" "$CONFIG"
+          sed -i -E "s/My Life, My Sim  v[0-9A-Za-z.+-]+/My Life, My Sim  v${VERSION_NAME}/" "$CONFIG"
+
+          # 3) 关于页显示的版本
+          sed -i -E "s/(<b id=\"abVer\">)v[^<]*(<\/b>)/\1v${VERSION_NAME}\2/" "$HTML"
+
+          # 4) WebView 加载串的 cache-busting 版本
+          sed -i -E "s#index\.html\?v=[0-9A-Za-z.+-]+#index.html?v=${VERSION_NAME}#" "$JAVA"
+
+          echo "==== 同步结果 ===="
+          grep -nE 'version(Code|Name)' "$GRADLE"
+          grep -n "^const GAME_VER" "$CONFIG"
+          grep -n 'id="abVer"' "$HTML"
+          grep -n 'index.html?v=' "$JAVA"
+
+          # 兜底：四处必须都真的改到了
+          grep -q "versionName \"${VERSION_NAME}\"" "$GRADLE" || { echo "::error::build.gradle 版本未同步"; exit 1; }
+          grep -q "GAME_VER = '${VERSION_NAME}'" "$CONFIG" || { echo "::error::GAME_VER 未同步"; exit 1; }
+          grep -q ">v${VERSION_NAME}<" "$HTML" || { echo "::error::关于页版本未同步"; exit 1; }
+          grep -q "index.html?v=${VERSION_NAME}" "$JAVA" || { echo "::error::WebView 加载串未同步"; exit 1; }
+
+      - name: Build Release APK
+        run: |
+          ./gradlew --stacktrace assembleRelease -Dorg.gradle.jvmargs="-Xmx2048m -Dfile.encoding=UTF-8"
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+        run: |
+          set -e
+          BODY=release_body.md
+          if [ -f CHANGELOG.md ]; then
+            # 抽取 "## [x.y.z]" 到下一个 "## [" 之间的内容
+            awk -v ver="$VERSION_NAME" '
+              index($0, "## [" ver "]") == 1 { found = 1; next }
+              found && index($0, "## [") == 1 { exit }
+              found { print }
+            ' CHANGELOG.md > "$BODY"
+          fi
+          if [ ! -s "$BODY" ]; then
+            echo "::warning::CHANGELOG.md 中没有 $VERSION_NAME 的小节，使用回退说明"
+            printf '本次发布未在 CHANGELOG.md 中找到 `%s` 的说明。\n' "$VERSION_NAME" > "$BODY"
+          fi
+          echo "==== Release 说明 ===="
+          cat "$BODY"
+
+      - name: Rename APK
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          cd app/build/outputs/apk/release
+          shopt -s nullglob
+          APKS=(*.apk)
+          if [ "${#APKS[@]}" -ne 1 ]; then
+            echo "::error::期望恰好 1 个 release APK，实际 ${#APKS[@]} 个"
+            ls -l
+            exit 1
+          fi
+          mv "${APKS[0]}" "My-Life-My-Sim-${TAG}-release.apk"
+          ls -lh
+
+      - name: Verify APK signature
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort | tail -n 1)"
+          "$APKSIGNER" verify --print-certs "app/build/outputs/apk/release/My-Life-My-Sim-${TAG}-release.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-apk
+          path: app/build/outputs/apk/release/My-Life-My-Sim-*-release.apk
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          # 手动触发时 tag 可能还不存在，用它把 tag 指到本次构建的 commit
+          target_commitish: ${{ github.sha }}
+          name: My Life, My Sim ${{ steps.version.outputs.tag }}
+          body_path: release_body.md
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.tag, 'alpha') || contains(steps.version.outputs.tag, 'beta') || contains(steps.version.outputs.tag, 'rc') }}
+          fail_on_unmatched_files: true
+          files: app/build/outputs/apk/release/My-Life-My-Sim-*-release.apk
