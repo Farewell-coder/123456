@@ -259,7 +259,7 @@ ok(tk.every(t => t.n <= 8), '每段不超过 8 年（单次请求不至于过长
   ok(typeof win.__floatOpenDbg === 'function', '页面暴露了无口令调试入口 __floatOpenDbg');
   win.__floatOpenDbg();
   ok(true, '无口令入口可调用（不抛错）');
-  const java = fs.readFileSync('/root/appbuild/LifeRestart/app/src/main/java/com/life/restart/FloatService.java', 'utf8');
+  const java = fs.readFileSync(__dirname + '/app/src/main/java/com/life/restart/FloatService.java', 'utf8');
   ok(java.indexOf('关闭悬浮窗') >= 0, 'v0.1.3 D：面板有「关闭悬浮窗」');
   ok(java.indexOf('进入调试面板') >= 0, '面板有「进入调试面板」（无需口令）');
   ok(java.indexOf('开启无敌模式') >= 0, 'v0.1.3 E：面板有「开启无敌模式」');

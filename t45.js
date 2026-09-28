@@ -7,9 +7,9 @@
    特色：C 节把「卡头按钮 vs 折叠」的冒泡冲突做成显式回归，以后改绑定不会悄悄退化。 */
 'use strict';
 const fs = require('fs');
-const { JSDOM } = require('/root/testenv/node_modules/jsdom');
+const { JSDOM } = require('jsdom');
 
-const ROOT = '/root/appbuild/LifeRestart';
+const ROOT = __dirname;
 const P = ROOT + '/app/src/main/assets/index.html';
 const HTML = require('./loadjs.js').loadFullHtml();
 const JS = require('./loadjs.js').loadGameJs();

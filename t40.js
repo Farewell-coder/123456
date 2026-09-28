@@ -207,8 +207,8 @@ console.log('\n=== 3. 读条等待 AI 完成 ===');
 
   /* 原生桥接契约 */
   console.log('\n=== 5. 原生侧契约 ===');
-  const java = fs.readFileSync('/root/appbuild/LifeRestart/app/src/main/java/com/life/restart/FloatService.java', 'utf8');
-  const mf = fs.readFileSync('/root/appbuild/LifeRestart/app/src/main/AndroidManifest.xml', 'utf8');
+  const java = fs.readFileSync(__dirname + '/app/src/main/java/com/life/restart/FloatService.java', 'utf8');
+  const mf = fs.readFileSync(__dirname + '/app/src/main/AndroidManifest.xml', 'utf8');
   ok(java.indexOf('TYPE_APPLICATION_OVERLAY') >= 0, '原生用 TYPE_APPLICATION_OVERLAY 建悬浮窗');
   ok(java.indexOf('canDrawOverlays') >= 0, '原生存了「是否已授权」判断');
   ok(java.indexOf('onTouch') >= 0 && java.indexOf('ACTION_MOVE') >= 0, '悬浮球可拖动');
@@ -217,7 +217,7 @@ console.log('\n=== 3. 读条等待 AI 完成 ===');
   ok(java.indexOf('关闭悬浮窗') >= 0 && java.indexOf('进入调试面板') >= 0 && java.indexOf('开启无敌模式') >= 0, 'v0.1.3 D：四按钮齐备');
   ok(mf.indexOf('SYSTEM_ALERT_WINDOW') >= 0, 'Manifest 声明了悬浮窗权限');
   ok(mf.indexOf('FloatService') >= 0, 'Manifest 注册了悬浮球服务');
-  const main = fs.readFileSync('/root/appbuild/LifeRestart/app/src/main/java/com/life/restart/MainActivity.java', 'utf8');
+  const main = fs.readFileSync(__dirname + '/app/src/main/java/com/life/restart/MainActivity.java', 'utf8');
   ok(main.indexOf('floatToggle') >= 0, 'MainActivity 暴露了开关悬浮球的桥接');
   ok(main.indexOf('ACTION_MANAGE_OVERLAY_PERMISSION') >= 0, '没权限时会拉起系统授权页');
   ok(main.indexOf('REQ_OVERLAY') >= 0 && main.indexOf('canDraw(this)') >= 0, '授权回来会自动开启');

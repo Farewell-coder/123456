@@ -4,7 +4,7 @@
    —— 每个分节用独立的 JSDOM 实例，互不污染。 */
 'use strict';
 const fs = require('fs');
-const { JSDOM } = require('/root/testenv/node_modules/jsdom');
+const { JSDOM } = require('jsdom');
 
 const HTML = require('./loadjs.js').loadFullHtml();
 const JS = require('./loadjs.js').loadGameJs();

@@ -2146,6 +2146,8 @@ function exportDiag(){
 /* ---- 关于页 / 调试页 ---- */
 function openAbout(){
   const v = $('#abVer'); if(v) v.textContent = 'v' + GAME_VER;
+  const a = $('#abAuthor'); if(a) a.textContent = ABOUT_AUTHOR;
+  const q = $('#abQQ'); if(q) q.textContent = ABOUT_QQ;
   $('#aboutPage').classList.add('on');
 }
 const closeAbout = () => exitLayer($('#aboutPage'));
@@ -2317,6 +2319,9 @@ function renderDbg(){
 /* ---- 绑定 ---- */
 (function bindDiag(){
   const ab = $('#abBack'); if(ab) ab.onclick = closeAbout;
+  /* 反馈群号：点一下即复制（走 copyText，原生 clipboard 失败时回退 execCommand） */
+  const qq = $('#abQQ');
+  if(qq) qq.onclick = () => copyText(ABOUT_QQ);
   const vv = $('#abVer');
   if(vv) vv.onclick = () => {
     const now = Date.now();

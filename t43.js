@@ -10,7 +10,7 @@
    附带：harvestAiQueue 与 scrollClean 次序 bug 的回归。 */
 'use strict';
 const fs = require('fs');
-const { JSDOM } = require('/root/testenv/node_modules/jsdom');
+const { JSDOM } = require('jsdom');
 const HTML = require('./loadjs.js').loadFullHtml();
 let pass = 0, fail = 0;
 const BUGS = [];

@@ -7,8 +7,8 @@
         以后任何新加 class 忘了写样式，这里会直接报出来。 */
 'use strict';
 const fs = require('fs');
-const { JSDOM } = require('/root/testenv/node_modules/jsdom');
-const P = '/root/appbuild/LifeRestart/app/src/main/assets/index.html';
+const { JSDOM } = require('jsdom');
+const P = __dirname + '/app/src/main/assets/index.html';
 const HTML = require('./loadjs.js').loadFullHtml();
 let pass = 0, fail = 0;
 const BUGS = [];

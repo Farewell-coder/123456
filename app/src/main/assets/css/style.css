@@ -384,6 +384,12 @@ input,textarea{-webkit-user-select:auto;user-select:auto}
 .abrow:last-child{border-bottom:none}
 .abk{color:var(--dim)}
 .abv{color:var(--fg);font-weight:600}
+/* 反馈群号：做成可点的浅色胶囊，暗示「能点」；点一下复制 */
+.abqq{display:inline-block;padding:2px 10px;border-radius:99px;
+  background:var(--accSoft);color:var(--acc);border:1px solid var(--accLine);
+  font-weight:700;font-variant-numeric:tabular-nums;cursor:pointer;
+  transition:background .15s,transform .1s}
+.abqq:active{background:var(--accSoft2);transform:scale(.96)}
 /* 抉择倒计时：就地长在选项框底部的一条细进度 + 秒数，安静不抢戏 */
 .li.choiceLi .co .cdbox{display:flex;align-items:center;gap:8px;margin-top:4px;
   font-size:11px;color:var(--dim)}

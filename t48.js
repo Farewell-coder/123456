@@ -8,9 +8,9 @@
    特色：需求1 用「模拟长按 600ms 后松手」的真实时序做回归 —— 这是真机上会踩的那条路径。 */
 'use strict';
 const fs = require('fs');
-const { JSDOM } = require('/root/testenv/node_modules/jsdom');
+const { JSDOM } = require('jsdom');
 
-const ROOT = '/root/appbuild/LifeRestart';
+const ROOT = __dirname;
 const P = ROOT + '/app/src/main/assets/index.html';
 const HTML = require('./loadjs.js').loadFullHtml();
 const JS = require('./loadjs.js').loadGameJs();
