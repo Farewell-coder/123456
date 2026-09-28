@@ -1,3 +1,18 @@
+/*
+ * My Life, My Sim —— 纯前端中文人生模拟器
+ * Copyright (C) 2026 aerree
+ *
+ * 本程序是自由软件：你可以依据自由软件基金会发布的 GNU 通用公共许可证
+ * 第 3 版条款，重新发布和/或修改它。
+ *
+ * 本程序基于「希望它有用」而发布，但没有任何担保，甚至没有适销性
+ * 或特定用途适用性的默示担保。详见 GNU 通用公共许可证。
+ *
+ * 你应已随本程序收到一份 GNU 通用公共许可证副本；若没有，
+ * 请见 <https://www.gnu.org/licenses/>。
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.life.restart;
 
 import android.app.Service;

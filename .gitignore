@@ -55,4 +55,7 @@ cleanup_residue.sh
 runall.sh
 runall_fast.sh
 tools/
+# ===== 测试依赖（jsdom 等，仅本机回归用）=====
+node_modules/
+package-lock.json
 datapack/

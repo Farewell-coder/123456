@@ -1,0 +1,10 @@
+{
+  "name": "my-life-my-sim",
+  "version": "0.0.1",
+  "private": true,
+  "description": "My Life, My Sim —— 纯前端中文人生模拟器（本文件仅声明回归测试依赖，游戏本体零运行时依赖）",
+  "license": "GPL-3.0-only",
+  "devDependencies": {
+    "jsdom": "^30.1.1"
+  }
+}
