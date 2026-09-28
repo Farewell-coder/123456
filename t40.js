@@ -56,7 +56,7 @@ const win = {
   location: { href:'file:///index.html', reload(){} }
 };
 const store = {
-  'lr_cfg_0.1.2': JSON.stringify({
+  'lr_cfg_0.0.1': JSON.stringify({
     on:true, prefetch:true, theme:'auto', ai:50, active:'默认配置',
     profiles:{ '默认配置': { base:'http://x/v1', model:'m', key:'sk-TESTKEY' } }
   })

@@ -78,7 +78,7 @@ SECT.A = async () => {
   ok(!bootErr, '页面脚本无致命错误启动' + (bootErr ? '（' + bootErr.message + '）' : ''));
   const w = e.w;
   ok(e.errs.length === 0, '启动期间无非捕获错误' + (e.errs.length ? '（' + e.errs.join(' | ') + '）' : ''));
-  ok(w.eval('GAME_VER') === '0.1.2', 'GAME_VER = 0.1.2');
+  ok(w.eval('GAME_VER') === '0.0.1', 'GAME_VER = 0.0.1');
   ok(w.eval('CUR') === 'MAIN_MENU', '初始状态为 MAIN_MENU');
 
   const cnt = w.eval('JSON.stringify({ev:dataOf("ev").length,tal:dataOf("tal").length,ach:dataOf("ach").length,end:dataOf("end").length,tag:dataOf("tag").length})');
@@ -257,7 +257,7 @@ SECT.C = async () => {
   ok(!w.eval("$('#deathCard').classList.contains('hide')"), '死亡小结卡显示');
   ok(!w.eval("$('#endbar').classList.contains('hide')"), '死亡后按钮条出现');
   ok(w.eval("$('#playbar').classList.contains('hide')"), '死亡后播放条隐藏');
-  ok(w.eval("localStorage.getItem('lr_hist_0.1.2')") === null, '死亡时清掉进行中存档');
+  ok(w.eval("localStorage.getItem('lr_hist_0.0.1')") === null, '死亡时清掉进行中存档');
 
   /* 结算 */
   const sp = JSON.parse(w.eval('JSON.stringify(S.attr)'));
@@ -531,7 +531,7 @@ SECT.F = async () => {
   ok(h && h.S && Math.round(h.S.age) === 33, 'saveHist / histOf 往返正确（年龄 ' + (h && h.S && h.S.age) + '）');
 
   /* 跨版本回退：旧版本键也能读到 */
-  w.eval("(function(){ var raw = localStorage.getItem('lr_hist_0.1.2'); localStorage.removeItem('lr_hist_0.1.2'); localStorage.setItem('lr_hist_9.9.9', raw); })()");
+  w.eval("(function(){ var raw = localStorage.getItem('lr_hist_0.0.1'); localStorage.removeItem('lr_hist_0.0.1'); localStorage.setItem('lr_hist_9.9.9', raw); })()");
   const h2 = JSON.parse(w.eval('JSON.stringify(histOf())'));
   ok(h2 && Math.round(h2.S.age) === 33, '存档键跨版本可回退读取（lsCompat）');
 
@@ -579,7 +579,7 @@ SECT.H = async () => {
   ok(callable, '__floatOpenDbg() 无口令可直接打开调试面板（不抛错）');
   const st = w.__floatStat();
   const stj = JSON.parse(st);
-  ok(stj.ver === '0.1.2', '__floatStat() 返回版本号（给原生面板读）');
+  ok(stj.ver === '0.0.1', '__floatStat() 返回版本号（给原生面板读）');
   /* __floatCfg() 返回的是 JSON 字符串（给原生侧跨语言读），这里要先 parse 再取字段 */
   const cfg = (() => { try{ const raw = w.__floatCfg(); return JSON.parse(typeof raw === 'string' ? raw : JSON.stringify(raw)); }catch(err){ return null; } })();
   ok(cfg && typeof cfg.ok === 'boolean', '__floatCfg() 返回配置结构（含可用性 ok=' + (cfg && cfg.ok) + '）');
@@ -750,7 +750,7 @@ SECT.K = async () => {
   }
 
   /* 无存档时「继续游戏」整块隐藏（不再是置灰） */
-  w.eval("localStorage.removeItem('lr_hist_0.1.2'); refreshMenu();");
+  w.eval("localStorage.removeItem('lr_hist_0.0.1'); refreshMenu();");
   ok(w.eval("$('#mCont').classList.contains('hide')") === true, '无存档时「继续游戏」隐藏');
   w.eval("newLife([], {EQ:5,WIL:5,MH:10}, 'd1'); S.age=20; running=false; saveHist(); goState('MAIN_MENU');");
   ok(w.eval("$('#mCont').classList.contains('hide')") === false, '有存档时「继续游戏」可见');

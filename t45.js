@@ -3,7 +3,7 @@
      A 主菜单改版（两段式标题 / 副标题 / 按钮文案与顺序 / 无档隐藏继续 / 删底部信息区）
      B 数据管理三张卡 → 设置页同款可折叠（含 lr_fold 持久化与回放）
      C 文本体检卡头「开始体检」主按钮（一键跑查重 + 补写，且点它不会误触折叠）
-     D 版本号 0.1.2 / 软件名 My Life, My Sim 的全落点
+     D 版本号 0.0.1 / 软件名 My Life, My Sim 的全落点
    特色：C 节把「卡头按钮 vs 折叠」的冒泡冲突做成显式回归，以后改绑定不会悄悄退化。 */
 'use strict';
 const fs = require('fs');
@@ -157,13 +157,13 @@ const waited = (async () => {
     + "localStorage.removeItem('lr_fold');");
 
   /* ============ D. 版本号 / 软件名 ============ */
-  console.log('\n=== D. 版本号 0.1.2 / 软件名 My Life, My Sim ===');
-  ok(/const GAME_VER = '0\.1\.2';/.test(HTML), 'index.html GAME_VER = 0.1.2');
-  ok(/<div class="card aboutcard" id="cardAbout">/.test(HTML), '设置里「关于」已独立成卡（v0.1.2）');
-  ok(/<b id="abVer">v0\.1\.2<\/b>/.test(HTML), '关于页版本号 v0.1.2');
-  ok(/My Life, My Sim  v0\.1\.2/.test(HTML), 'JS 头部注释版本号 v0.1.2');
-  ok(/versionCode 5\b/.test(GRAD) && /versionName "0\.1\.2"/.test(GRAD), 'build.gradle versionCode 5 / versionName 0.1.2');
-  ok(JAVA.indexOf('index.html?v=0.1.2') >= 0, 'MainActivity 加载串 ?v=0.1.2');
+  console.log('\n=== D. 版本号 0.0.1 / 软件名 My Life, My Sim ===');
+  ok(/const GAME_VER = '0\.0\.1';/.test(HTML), 'index.html GAME_VER = 0.0.1');
+  ok(/<div class="card aboutcard" id="cardAbout">/.test(HTML), '设置里「关于」已独立成卡');
+  ok(/<b id="abVer">v0\.0\.1<\/b>/.test(HTML), '关于页版本号 v0.0.1');
+  ok(/My Life, My Sim  v0\.0\.1/.test(HTML), 'JS 头部注释版本号 v0.0.1');
+  ok(/versionCode 1\b/.test(GRAD) && /versionName "0\.0\.1"/.test(GRAD), 'build.gradle versionCode 1 / versionName 0.0.1');
+  ok(JAVA.indexOf('index.html?v=0.0.1') >= 0, 'MainActivity 加载串 ?v=0.0.1');
   ok(/<string name="app_name">My Life, My Sim<\/string>/.test(XMLS), 'strings.xml 桌面图标名 My Life, My Sim');
   /* 软件名 11 处落点（index.html） */
   ok(/<title>My Life, My Sim<\/title>/.test(HTML), 'title 标签');
@@ -179,9 +179,9 @@ const waited = (async () => {
   ok(JAVA.indexOf('"人生重开存档"') < 0 && JAVA.indexOf('"MyLifeMySim"') >= 0, 'MainActivity 兜底目录改名');
   /* 存档兼容：换版本号后旧档仍能读到 */
   const compat = w.eval("(function(){localStorage.clear();"
-    + "localStorage.setItem('lr_hist_0.0.1', JSON.stringify({ver:'0.0.1',at:1,S:{age:42}}));"
+    + "localStorage.setItem('lr_hist_0.0.0', JSON.stringify({ver:'0.0.0',at:1,S:{age:42}}));"
     + "var h = histOf(); return h && h.S && h.S.age;})()");
-  ok(compat === 42, '换到 0.1.2 后旧档 lr_hist_0.0.1 仍被 lsCompat 读到（不丢档）');
+  ok(compat === 42, '换到 0.0.1 后旧档 lr_hist_0.0.0 仍被 lsCompat 读到（不丢档）');
   ok(errs.length === 0, '全程无运行时错误（' + errs.length + '）');
 
   /* ---------- 汇总 ---------- */

@@ -63,7 +63,7 @@ const win = {
   alert(){}, confirm: () => true, prompt: () => ''
 };
 const store = {
-  'lr_cfg_0.1.2': JSON.stringify({
+  'lr_cfg_0.0.1': JSON.stringify({
     on:true, prefetch:true, theme:'auto', vol:0, spd:420, cdt:true, ai:50,
     active:'默认配置', provider:'http://x/v1',
     profiles:{ '默认配置': { base:'http://x/v1', model:'m', key:'sk-TESTKEY1234567890abcdef' } }
@@ -106,8 +106,8 @@ const api = new Function('document','window','localStorage','navigator',
 
 /* ---------- 1. 入口存在 ---------- */
 console.log('=== 1. 设置面板底部「关于」入口 ===');
-ok(!!ELS['#cardAbout'] && typeof ELS['#cardAbout'].onclick === 'function', '设置底部「关于」已独立成卡且已绑定（v0.1.2）');
-ok(!!ELS['#btnBackSet'] && typeof ELS['#btnBackSet'].onclick === 'function', '保存 / 关闭已合并为单个「返回」按钮（v0.1.2）');
+ok(!!ELS['#cardAbout'] && typeof ELS['#cardAbout'].onclick === 'function', '设置底部「关于」已独立成卡且已绑定');
+ok(!!ELS['#btnBackSet'] && typeof ELS['#btnBackSet'].onclick === 'function', '保存 / 关闭已合并为单个「返回」按钮');
 ok(src.indexOf('#btnSaveSet') < 0 && src.indexOf('#btnCloseSet') < 0 && src.indexOf('#btnAbout') < 0, '旧的保存 / 关闭 / 关于按钮已彻底移除');
 
 /* ---------- 2. 关于页 ---------- */
@@ -207,7 +207,7 @@ const snap = api.diagSnapshot();
 ok(snap.ver === api.GAME_VER, '快照带版本号');
 ok(snap.life && snap.life.age === 0, '快照带当前人生（岁数）');
 ok(snap.ai && snap.ai.model === 'm', '快照带 AI 配置（模型）');
-ok(snap.store && snap.store['lr_cfg_0.1.2'] > 0, '快照带各存档键体积');
+ok(snap.store && snap.store['lr_cfg_0.0.1'] > 0, '快照带各存档键体积');
 const txt = api.diagText();
 ok(/诊断信息/.test(txt) && /运行日志/.test(txt), '诊断文本含概览与日志两段');
 ok(txt.indexOf('sk-') < 0 && txt.indexOf('"key"') < 0, '诊断文本不含 API 密钥');
@@ -241,8 +241,8 @@ ok(win.__back() === true && !ELS['#aboutPage'].classList.contains('on'), '返回
 console.log('\n=== 8. 诊断包密钥打码 ===');
 const KEY = 'sk-TESTKEY1234567890abcdef';
 ok(api.getCfg().profiles['默认配置'].key === KEY, '前置：配置里确实存着明文密钥');
-ok(api.maskSecrets('lr_cfg_0.1.2', store['lr_cfg_0.1.2']).indexOf('sk-') < 0, 'maskSecrets 抹掉了配置里的密钥');
-ok(api.maskSecrets('lr_cfg_0.1.2', store['lr_cfg_0.1.2']).indexOf('***') >= 0, '打码替换成了 ***');
+ok(api.maskSecrets('lr_cfg_0.0.1', store['lr_cfg_0.0.1']).indexOf('sk-') < 0, 'maskSecrets 抹掉了配置里的密钥');
+ok(api.maskSecrets('lr_cfg_0.0.1', store['lr_cfg_0.0.1']).indexOf('***') >= 0, '打码替换成了 ***');
 ok(api.scrubSecrets('随便一段 sk-ABCDEFGH12345678 结尾').indexOf('sk-') < 0, 'scrubSecrets 能兜底抹掉任意形态的密钥');
 
 const dump = api.lsDump();

@@ -35,7 +35,7 @@ doc.getElementById('dlgI').classList.add('hide');
   ok(api.SAVE_REC === 'lr_records', '战绩存储键不变（跨版本累积）');
 
   console.log('=== 1. 真跑一整局（无 AI） ===');
-  localStorage.setItem('lr_cfg_0.1.2', JSON.stringify({
+  localStorage.setItem('lr_cfg_0.0.1', JSON.stringify({
     on: false, prefetch: true, theme: 'light', vol: 0, spd: 1, auto: true, cdt: true,
     ai: 0, active: '默认配置', provider: '',
     profiles: { '默认配置': { base: '', model: '', key: '' } }
