@@ -975,14 +975,36 @@ async function openSummary(){
      ② 重复点「立即总结」会重复 dataPut 同一批 AI 结局 / 天赋，必须只走一次。 */
   if(!S.dead || S.summarized) return;
   S.summarized = true;
-  running = false; gen++;
+  running = false; gen++; setRunUI();
   const sc = scoreOf();
   const [rk0, desc0] = rankOf(sc);
   const dbEnd = dbEndingOf();
   S.ending = dbEnd ? dbEnd.n : rk0;
-  const rk = dbEnd ? dbEnd.n : rk0;
-  const desc = dbEnd ? dbEnd.d : desc0;
+  let rk = dbEnd ? dbEnd.n : rk0;
+  let desc = dbEnd ? dbEnd.d : desc0;
   const newAch = checkAch();   // 死亡结算这一刻统一检测成就
+  /* v0.0.2：本局没命中任何已有专属结局时，让 AI 按这一局真实面貌新写一个。
+     生成频率同样受 AI 占比滑条控制（0% 时不生成）；失败静默，退回评级称号。 */
+  if(!dbEnd && aiReady() && aiRatioT() > 0){
+    const pr0 = attrProfile();
+    const aiEndNew = await aiGenEnding(
+      '享年 ' + Math.round(S.age) + ' 岁｜' + ((era && era.n) || '') + '｜' + stageOf(S.age) + '离世\n' +
+      '最终属性：' + ALLA.filter(x => !x.legacy).map(x => x.n + ' ' + Math.round(S.attr[x.k] || 0)).join('、') + '\n' +
+      '主导属性：' + pr0.dom + '｜状态标签：' + ((S.tags || []).length ? S.tags.join('、') : '无') + '\n' +
+      '综合评分：' + sc);
+    if(aiEndNew && aiEndNew.n){
+      rk = aiEndNew.n; desc = aiEndNew.d; S.ending = aiEndNew.n;
+      /* 入库：cond 绑本局的享年与主导属性，保证下一局只有相似的人生才会命中它，
+         不会把内置结局全盖掉。 */
+      try{
+        const domKey = (ATTRS.find(x => x.n === pr0.dom) || {}).k;
+        const cnd = {age: [Math.max(0, Math.round(S.age) - 5), Math.round(S.age) + 5]};
+        if(domKey){ cnd.allMin = {}; cnd.allMin[domKey] = Math.max(0, Math.round(S.attr[domKey] || 0) - 3); }
+        const it = dbNorm('end', {name: aiEndNew.n, desc: aiEndNew.d, cond: cnd, rank: ''});
+        if(it){ it.origin = 'ai'; dataPut('end', it); }
+      }catch(e){}
+    }
+  }
   /* v0.1.4: 结算时自动把本局的 AI 结局/天赋入库（标 origin='ai'）。
      这里直接用上面那份 dbEnd（同一函数、无副作用），不再重复求值、也不再遮蔽同名变量。 */
   if(S && S.ending && aiReady()){
@@ -1066,7 +1088,7 @@ async function die(my, why){
      兼容旧签名单参写法 die(why)：首参不是数字时一律视为死因，不参与局次比对。 */
   if(typeof my !== 'number'){ if(why === undefined) why = my; my = undefined; }
   if(my !== undefined && my !== gen) return;
-  running = false; gen++;
+  running = false; gen++; setRunUI();
   S.dead = true;
   /* 需求：死亡必须有理由，理由不一定是最后那条事件，且理由之后不再有事件。
      这里在宣告结束之前，先落一条「死因」日志 —— 它就是最后一条，后面只有小结。 */
@@ -1442,7 +1464,7 @@ function importSave(file){
         if(data.dex) setDex(Object.assign(getDex(), data.dex));
         $('#log').innerHTML = ''; clearYearCards(); lastYShown = -1;
         st.logs.forEach(l => pushLog(l.age, l.text, l.kind, l.delta, l.src));
-        running = false; gen++;
+        running = false; gen++; setRunUI();
         goState('MAIN_MENU');
         toast('导入成功，已回到主界面');
       }},
@@ -1557,7 +1579,7 @@ function bindUI(){
     S = h.S;
     era = ERAS.find(e => e.id === S.era) || ERAS[0];
     queue = [];
-    running = false; gen++;
+    running = false; gen++; setRunUI();
     resetEndUI();
     $('#log').innerHTML = ''; clearYearCards(); lastYShown = -1;
     S.logs.forEach(l => pushLog(l.age, l.text, l.kind, l.delta, l.src));
@@ -1574,8 +1596,7 @@ function bindUI(){
   $('#talBack').onclick = () => goState('MAIN_MENU');
   $('#talSet').onclick = openSet;
   $('#talReroll').onclick = () => {
-    alloc.poolIds = rollTalents(6);
-    alloc.picked = [];
+    rollTalentsSmart(6);
     renderTalents();
     toast('已重新抽取');
   };
@@ -1589,7 +1610,7 @@ function bindUI(){
   $('#atBack').onclick = () => { alloc.mode = 'earth'; goState('TALENT_SELECTION'); };
   /* ====== 模式选择页 ====== */
   $('#modeBack').onclick = () => goState('MAIN_MENU');
-  $('#modeEarth').onclick = () => { alloc.mode = 'earth'; alloc.poolIds = rollTalents(6); alloc.picked = []; renderTalents(); goState('TALENT_SELECTION'); };
+  $('#modeEarth').onclick = () => { alloc.mode = 'earth'; rollTalentsSmart(6); renderTalents(); goState('TALENT_SELECTION'); };
   $('#atSet').onclick = openSet;
   $('#atReset').onclick = () => { setDiff(alloc.diff); toast('已重置加点'); };
   $('#btnUndo').onclick = () => undoPoint();
@@ -1629,8 +1650,7 @@ function bindUI(){
   $('#ovAgain').onclick = () => {
     if(REC_VIEW != null){ closeRecView(); return; }
     flushAiDb();
-    alloc.poolIds = rollTalents(6);
-    alloc.picked = [];
+    rollTalentsSmart(6);
     renderTalents();
     goState('TALENT_SELECTION');
   };
@@ -1883,13 +1903,13 @@ function leavePlaying(){
   const age = Math.round(S.age);
   dialog('返回主界面', '当前人生已经走到 ' + age + ' 岁，进度将自动保存。确定要离开吗？', [
     {t:'保存并返回', pri:true, fn:() => {
-      running = false; gen++;
+      running = false; gen++; setRunUI();
       window.__pendingChoice = null;
       saveHist(); toast('进度已保存');
       goState('MAIN_MENU');
     }},
     {t:'放弃保存并返回', fn:() => {
-      running = false; gen++;
+      running = false; gen++; setRunUI();
       window.__pendingChoice = null;
       lsDel(SAVE_HIST);
       toast('已放弃本次进度');
@@ -1901,21 +1921,19 @@ function leavePlaying(){
 function restartConfirm(){
   dialog('一键重开', '当前人生进度将丢失，确定要重开吗？（' + Math.round(S ? S.age : 0) + ' 岁）', [
     {t:'自动保存后重开', pri:true, fn:() => {
-      running = false; gen++;
+      running = false; gen++; setRunUI();
       saveHist();
       setTimeout(() => {
-        alloc.poolIds = rollTalents(6);
-        alloc.picked = [];
+        rollTalentsSmart(6);
         renderTalents();
         goState('TALENT_SELECTION');
       }, 10);
     }},
     {t:'放弃保存并重开', fn:() => {
-      running = false; gen++;
+      running = false; gen++; setRunUI();
       lsDel(SAVE_HIST);
       setTimeout(() => {
-        alloc.poolIds = rollTalents(6);
-        alloc.picked = [];
+        rollTalentsSmart(6);
         renderTalents();
         goState('TALENT_SELECTION');
       }, 10);

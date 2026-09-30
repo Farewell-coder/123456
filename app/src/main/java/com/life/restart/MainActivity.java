@@ -210,7 +210,7 @@ public class MainActivity extends Activity {
         }
         if (web.getUrl() == null) {
             web.clearCache(true);
-            web.loadUrl("file:///android_asset/index.html?v=0.0.1");
+            web.loadUrl("file:///android_asset/index.html?v=0.0.2");
         }
     }
 

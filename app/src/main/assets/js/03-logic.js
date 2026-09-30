@@ -65,9 +65,9 @@ function applyEffect(e, silent){
     if(h.grow) v *= h.grow;
     /* patch54：一年内同一项反复被加时按次数打折（第 2 次半价、第 3 次起 1/4） */
     if(!silent){ v *= margMul(k) * yearScale(); }
-    /* 需求 9：属性增益权重整体上调到 1.5 倍。
+    /* 需求 9：属性增益权重整体上调到 3 倍（v0.0.2：由 1.5 倍再翻倍）。
        只抬正向收益，惩罚保持原样 —— 两边一起放大只会让曲线更陡，不是想要的。 */
-    if(v > 0) v *= 1.5;
+    if(v > 0) v *= 3;
     v = softAttr(k, v);
     /* 抑郁症的额外惩罚：作用于本条事件的负收益。
        注意 k 只会是 S.attr 里的七个主属性（隐藏四项与 35 子项在这里进不来），
@@ -311,7 +311,9 @@ const PER_REQ_YEARS_CAP = 8;       // 单次请求最多覆盖的年数（不跨
    至少 1 条（只要开 AI 就得有货），最多 6 条（与档位上限对齐）。 */
 function targetEvPerYear(){
   const T = (getCfg().ai == null ? 50 : getCfg().ai) / 100;
-  return clamp(Math.max(1, Math.round(3 * T)), 1, 6);
+  /* v0.0.2：每批里要留出 3 条交互事件 + 1 条任务的位置，
+     否则一年只写 1~3 条时，交互/任务指令根本塞不进去。 */
+  return clamp(Math.max(3, Math.round(4 * T)), 3, 8);
 }
 /* 按「每年条数 × AI 占比」折算整局预加载要分多少片请求 */
 function planBootLoad(from, to){
@@ -440,8 +442,21 @@ function addToQueue(res){
     if(queue.some(q => q.t === txt)){ abyssDrop(); continue; }
     aiSeen[txt] = 1;
     /* 需求 27：AI 输出的性别编号一并带进队列（空值交给 evSex 运行时推） */
-    queue.push({age:ag, t:txt, e:cleanEff(o.effects), src:'AI', stage:stageOf(ag),
-                aff:sanAff(o.aff), sex:sanSex(o.sex)});
+    /* v0.0.2：AI 写的分支事件（o 数组）必须原样带进队列。
+       此前这里只留 text/effects，o 被直接丢掉 —— AI 明明按要求写了「要玩家自己选」
+       的事件，进游戏后却退化成一条普通文案，「AI 不会写交互事件」的观感即由此而来。 */
+    const oo = Array.isArray(o.o) ? o.o.map(sanChoice).filter(Boolean) : [];
+    const rec = {age:ag, t:txt, e:cleanEff(o.effects), src:'AI', stage:stageOf(ag),
+                 aff:sanAff(o.aff), sex:sanSex(o.sex)};
+    if(oo.length){
+      rec.o = oo;
+      rec.n = '抉择';
+      /* 给 AI 事件一个稳定 id：need.once / S.used 去重都靠它 */
+      rec.id = 'aiev' + (Object.keys(aiSeen).length);
+      /* 「任务」型交互事件：AI 可写 need（once / tag / attr），一并带上 */
+      if(o.need && typeof o.need === 'object') rec.need = o.need;
+    }
+    queue.push(rec);
     aiQuota.take(ag);
     add++;
   }
@@ -750,21 +765,59 @@ async function buildOutline(g){
     if(s.length >= 30){ S.outline = s.slice(0, 400); saveHist(); }
   }catch(e){ /* 隐秘：失败静默跳过，不影响本地池推进 */ }
 }
-/* 「要玩家自己选」的指令块：这批事件里至少凑够 MIN_CHOICE_PER_REQ 条分支事件 */
-const MIN_CHOICE_PER_REQ = 2;
+/* 「要玩家自己选」的指令块：每批至少留 1 条交互事件，攒进池子由节流器按 5~10 年放行 */
+const MIN_CHOICE_PER_REQ = 1;
+/* v0.0.2：每批还要凑够这么多条「任务事件」（带 need 门槛的长期交互事件） */
+const MIN_TASK_PER_REQ = 1;
+/* v0.0.2：交互事件节流 —— 一局里大约每 5~10 年才来一次，
+   不再是「每批必须凑 3 条」那样密集。距上次不足 5 年一律不触发；
+   5~10 年之间按年数线性升概率；满 10 年必定触发。 */
+const CHOICE_GAP_MIN = 5, CHOICE_GAP_MAX = 10;
+function choiceDue(){
+  if(!S) return false;
+  const cur = Math.round(S.age);
+  const last = Number(S.lastChoiceAge);
+  if(!isFinite(last)) return cur >= CHOICE_GAP_MIN;   // 开局前 5 年不出
+  const gap = cur - last;
+  if(gap < CHOICE_GAP_MIN) return false;
+  if(gap >= CHOICE_GAP_MAX) return true;
+  return Math.random() < (gap - CHOICE_GAP_MIN + 1) / (CHOICE_GAP_MAX - CHOICE_GAP_MIN + 1);
+}
+/* 交互事件的影响放大系数：选项结果比普通事件重一倍（v0.0.2） */
+const CHOICE_AMP = 2;
+function ampEff(e){
+  if(!e || typeof e !== 'object') return e;
+  const out = {};
+  Object.keys(e).forEach(k => {
+    const v = Number(e[k]) || 0;
+    if(v) out[k] = Math.round(v * CHOICE_AMP * 10) / 10;
+  });
+  return out;
+}
 function choicePrompt(){
   const jk = ['INT','CHR','STR','MNY','LUK','SPR','SOC'];
   return '\n【交互事件】这一批里至少要写 ' + MIN_CHOICE_PER_REQ + ' 条「要玩家自己选」的分支事件，' +
     '它们是这批事件的重点，写的时候多花点心思：' +
     '① 每条给 2-3 个选项（字段 o），三选项的必须凑够三条正好走 ' +
     jk.slice(0, 3).join(' / ') + ' 三条判定线（其余判定键：' + jk.join('/') + '）；' +
+    '【重要】交互事件在一局里很稀有，大约每 5~10 年才会出现一次，' +
+    '所以每条都要写成本阶段的「大抉择」，别写成日常小事；' +
     '② 选项之间的差别是「活法不同」，不是对错，别写成「正确答案 + 两个陪跑」；' +
     '③ 有的一方带判定（j:{"a":"INT","v":9}，值 = 主属性加成，判定不过走 no 分支），' +
     '也可以有一项干脆无判定、直接承受结果；' +
     '④ ok / no 都要写结果文案 t 与属性增减 e；t 一句 15-30 字，e 的键只能是主属性；' +
     '⑤ 一个选项可以给标签 tag（字符串数组）或摘掉标签 untag；' +
     '⑥ 分支事件同样要落在本阶段的年龄与场景里，年龄用 age:[起,止]；' +
-    '⑦ 分支事件也要写 aff / sex / subs / effects，其中 effects 是该事本身的基准影响。';
+    '⑦ 分支事件也要写 aff / sex / subs / effects，其中 effects 是该事本身的基准影响。' +
+    '\n【任务事件】这一批里还要有 ' + MIN_TASK_PER_REQ + ' 条「任务」——它是有门槛、会延续的长期交互事件，' +
+    '比普通交互事件更重：' +
+    '① 用 need 写明门槛：{"tag":"社畜"} 需带某标签 / {"attr":{"INT":[12,99]}} 限定属性区间 / {"once":1} 一局只出一次；' +
+    '② age 跨度写宽一些（如 [25,50]），表示它可能在很长一段时间里等着这个人；' +
+    '③ 选项结果的属性增减要比普通事件重一倍（e 里写 ±3~6），并且必须带 tag —— ' +
+    '这个标签就是「任务已接下」的凭证，后面的事件会靠 need 里的 tag 接住它；' +
+    '④ 任务的文案要写成一个「开始」，不要写成「结束」：比如「你决定用三年时间考下那个证」，' +
+    '而不是「你考下了那个证」；' +
+    '⑤ 三条任务分别落在不同的人生面向（事业 / 感情 / 身体或兴趣），不要三件都是同一类。';
 }
 /* 给 AI 的分支事件样例：从本地池现取，跨版本自更新（改了 e1–e20 样例跟着变） */
 function choiceSamples(){
@@ -1103,10 +1156,11 @@ function newLife(talentIds, attrPts, diffId){
   aiQuota.reset();      // 每年 AI 条目配额（需求 10 连带）：换局重新记账
   aiLastFrom = -1;      // 预取年份游标：新一局重来
   preHi = 0;            // 整局预加载认领到的年份也要复位，否则新局永远从 0 起补
-  running = true; gen++;
+  running = false; gen++;   // 需求：开局不自动播放，等玩家点「继续」才开始
   $('#log').innerHTML = ''; clearYearCards(); lastYShown = -1;
   goState('LIFE_PLAYING');
   renderPlayHead();
+  setRunUI();
   pushLog(0, '你是个' + S.sex + '孩，在「' + era.n + '」出生了。天赋：' + talentIds.map(i => '【' + talName(i) + '】').join(''));
   setStatus(aiReady() ? '正在预加载 AI 事件池…' : '本地事件模式（未启用 AI 或未配置）');
   saveHist();
@@ -1126,12 +1180,19 @@ async function runLoop(my){
     if(!running && !S.dead){ setStatus('已暂停'); return; }
   }
 }
+/* 播放/暂停按钮的唯一同步出口：任何改 running 的地方都必须调它，
+   否则会出现「按钮写着暂停、实际已停」这类不同步
+   （开局 / 读档 / 死亡 / 结算 / 重开 都是踩过坑的路径）。 */
+function setRunUI(){
+  const b = $('#pbGo');
+  if(b) b.textContent = running ? '暂停' : '继续';
+}
 function toggleRun(){
   if(!S || S.dead) return;
-  if(running){ running = false; gen++; setStatus('已暂停'); $('#pbGo').textContent = '继续'; }
+  if(running){ running = false; gen++; setStatus('已暂停'); setRunUI(); }
   else{
     running = true; gen++; const g = gen;
-    refreshStatus(); $('#pbGo').textContent = '暂停';
+    refreshStatus(); setRunUI();
     runLoop(g);
   }
 }
@@ -1254,10 +1315,11 @@ async function tick(my){
     const cand = cand0.map(e => e);
     /* AI 占比：债务轮盘 —— 按目标占比 T 逐年攒「AI 配额」，攒够 1 就这一年必须走 AI。
        配额用不掉（AI 没货）就留到下一次，长程比例自然贴近 T，不需要事后纠偏。 */
-    if(cand.length && Math.random() < 0.42 * (1 - T)){
+    if(cand.length && choiceDue()){
       const e = pick(cand);
       S.used.push(e.id);
       S.flags['ev_' + e.id] = 1;
+      S.lastChoiceAge = Math.round(S.age);   // 记下这次，供 5~10 年节流
       /* 需求：AI 占比按「所有事件」的总量算 —— 带分支的抉择事件同样计入分母 */
       aiStat.n++;
       /* AI 写的分支事件也要记账，不然结算时收不到「AI 加入」里 */
@@ -1292,6 +1354,21 @@ async function tick(my){
 
     await sleep(60);
     let ev = null;
+    /* v0.0.2：AI 写的交互事件（带 o）走抉择流程 —— 与本地交互事件同一条路径。
+       只从队列里挑带 o 的条目，够不到就让本地池顶上，不占用普通事件的队列位。 */
+    if(wantAI && choiceDue() && queue.some(q => Array.isArray(q.o) && q.o.length)){
+      const qi = queue.findIndex(q => Array.isArray(q.o) && q.o.length);
+      ev = queue.splice(qi, 1)[0];
+      S.lastChoiceAge = Math.round(S.age);   // 与本地交互事件共用同一个节流计时
+      aiStat.n++;
+      aiStat.ai++;
+      if(!S.aiMade) S.aiMade = [];
+      if(S.aiMade.every(z => z.t !== ev.t)) S.aiMade.push({t: ev.t, age: Math.round(S.age), e: {}, aff: ev.aff || [], sex: ev.sex || ''});
+      await doChoice(ev, my);
+      if(my !== gen) return;
+      saveHist(); renderPlayHead();
+      continue;
+    }
     if(wantAI) ev = popQueue();
     if(!ev && wantAI && k === 0){
       /* 队列没货：给 AI 最多 5 秒现取，别让这一年空转（同年只在第一条时等） */
@@ -1418,7 +1495,7 @@ function doChoice(e, my){
         const lines = [];
         lines.push('<div class="resT">你选了「' + esc(o.k) + '」</div>');
         lines.push('<div class="resB' + (passed ? '' : ' bad') + '">' + esc(res.t) + '</div>');
-        const d = applyEffect(res.e).join(' ');
+        const d = applyEffect(ampEff(res.e)).join(' ');
         const dh = deltaHTML(d);
         if(dh) lines.push('<div class="resD">' + dh + '</div>');
         (res.tag || []).forEach(t => { const r = addTag(t); if(r) lines.push('<div class="resD">获得标签 ' + esc(r) + '</div>'); });

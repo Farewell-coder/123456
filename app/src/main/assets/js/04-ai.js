@@ -1463,5 +1463,89 @@ function achBonus(){
 }
 
 /* =========================================================
+   v0.0.2：AI 生成「天赋」与「结局」
+   —— 天赋在开局抽卡时掺入；结局在死亡结算时按本局特点新增。
+   两类都落进内容库（origin='ai'），下一局可被复用。
+   生成频率同样受设置里的「AI 占比」滑条控制（0% 时完全不生成）。
+   ========================================================= */
+/* 当前 AI 占比目标（0~1） */
+function aiRatioT(){
+  try{ return clamp((getCfg().ai == null ? 50 : getCfg().ai) / 100, 0, 1); }catch(e){ return 0; }
+}
+/* 开局抽天赋时让 AI 补几个候选；生成结果入库后走 refreshTalExt() 进抽卡池 */
+async function aiGenTalents(n){
+  if(!aiReady() || aiRatioT() <= 0) return [];
+  try{
+    const raw = await callAI([
+      {role:'system', content: WORLD_BOOK + '\n\n【本次任务】你是这台模拟器的天赋设计师。只输出 JSON 数组，不要任何解释、不要代码块标记。'},
+      {role:'user', content:
+        '为下面这个人生模拟器设计 ' + n + ' 个全新天赋（开局可选，会影响整局走向）。\n' +
+        '时代：' + (era && era.n ? era.n : '当代') + '。\n' +
+        '要求：\n' +
+        '1. 每个天赋按这个结构写：{"name":"四字名","rarity":0,"effects":{"CHR":2},"good":"利（15-25 字）","bad":"弊（15-25 字）"}\n' +
+        '2. rarity：0 白 / 1 蓝 / 2 紫 / 3 橙，这一批以 0 和 1 为主，最多一个 2\n' +
+        '3. effects 是开局属性增减，键只能是 CHR/INT/STR/MNY/LUK/SPR/SOC，值在 -3 到 3 之间\n' +
+        '4. name 要短（2-6 字）、彼此不重复，别用「天生丽质」「富二代」这类烂大街的\n' +
+        '5. good / bad 要具体、有画面感，写「利在哪、弊在哪」，不要写成数值说明\n' +
+        '6. 绝不可与下列已有天赋重名：' + ALL_TALENTS.slice(0, 50).map(t => t.n).join('、')
+    }], clamp(n * 160 + 300, 600, 1600));
+    const arr = extractJSON(raw);
+    if(!Array.isArray(arr)) return [];
+    const out = [];
+    arr.forEach(o => {
+      if(!o || !o.name) return;
+      const v = dbNorm('tal', {
+        name: String(o.name).slice(0, 8),
+        rarity: clamp(Number(o.rarity) || 0, 0, 3),
+        effects: cleanEff(o.effects),
+        good: String(o.good || '').slice(0, 40),
+        bad: String(o.bad || '').slice(0, 40)
+      });
+      if(!v) return;
+      v.origin = 'ai';
+      dataPut('tal', v);
+      out.push(v.id);
+    });
+    if(out.length) refreshTalExt();
+    return out;
+  }catch(e){ return []; }
+}
+/* 抽天赋的统一入口：先给本地 6 个，AI 的回来了再追加进池子（不阻塞、不打断玩家） */
+function rollTalentsSmart(n){
+  alloc.poolIds = rollTalents(n || 6);
+  alloc.picked = [];
+  if(aiReady() && aiRatioT() > 0){
+    const g = gen;
+    aiGenTalents(2).then(ids => {
+      if(!ids || !ids.length || g !== gen) return;
+      if(typeof CUR !== 'undefined' && CUR !== 'TALENT_SELECTION') return;
+      ids.forEach(id => { if(alloc.poolIds.indexOf(id) < 0) alloc.poolIds.push(id); });
+      try{ renderTalents(); }catch(e){}
+      toast('AI 新写了 ' + ids.length + ' 个天赋');
+    });
+  }
+}
+/* 死亡结算时：按这一局真实的面貌让 AI 新写一个专属结局 */
+async function aiGenEnding(ctx){
+  if(!aiReady() || aiRatioT() <= 0) return null;
+  try{
+    const raw = await callAI([
+      {role:'system', content: WORLD_BOOK + '\n\n【本次任务】你是这台模拟器的结局设计师。只输出 JSON 对象，不要任何解释、不要代码块标记。'},
+      {role:'user', content:
+        '为下面这个已经走完的人生，新写一个专属结局称号与描述。\n' + ctx + '\n' +
+        '要求：\n' +
+        '1. 只输出 {"name":"...","desc":"..."}\n' +
+        '2. name 是 2-6 字的结局称号，要能一眼看出这一生最特别的地方\n' +
+        '3. desc 是 15-40 字的一句话，克制、有余味，不要喊口号、不要煽情\n' +
+        '4. 必须扣住上面这个人真实的数据与标签 —— 换一个人就不成立，才叫专属\n' +
+        '5. 不要直接套用「人生赢家」「长寿老人」这类已有的通用称号'
+    }], 400);
+    const o = extractJSON(raw);
+    if(!o || !o.name) return null;
+    return {n: String(o.name).slice(0, 10), d: String(o.desc || '').slice(0, 60)};
+  }catch(e){ return null; }
+}
+
+/* =========================================================
    数据管理子页（后续代码在 05-main.js）
    ========================================================= */

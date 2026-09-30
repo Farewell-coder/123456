@@ -39,23 +39,18 @@ backups/
 *.log
 
 # ===== 开发/测试残留脚本 =====
-# 注意：t37.js / t42.js 是回归测试文件，必须保留，勿加 t3*.js / t4*.js 规则
-chk*.js
-t5*.js
-v2*.js
-fix*.js
-smoke.js
-domstub.js
-layout.js
-loadjs.js
-purge.js
-rt24.js
-verify_ev.js
-cleanup_residue.sh
+# 说明：测试与开发辅助脚本只在本机跑，不进仓库。
+# 目录结构见 PROJECT_STRUCTURE.md（tests/ 自动测试、dev/ 开发辅助）。
+# 注意：tests/e2e/ 下的 smoke-test.js / full-app-test.js / play-50-games.js
+# 属于回归测试，同样不进仓库。
+tests/
+dev/
 runall.sh
 runall_fast.sh
+cleanup_residue.sh
 tools/
-# ===== 测试依赖（jsdom 等，仅本机回归用）=====
-node_modules/
-package-lock.json
 datapack/
+# ===== 测试依赖（jsdom 等，仅本机回归用）=====
+# 注意：本机 node_modules 是软链，忽略规则不能带结尾斜杠，否则匹配不到
+node_modules
+package-lock.json
