@@ -23,6 +23,16 @@ def keystoreProps = new Properties()
 if (keystorePropsFile.exists()) {
     keystorePropsFile.withInputStream { keystoreProps.load(it) }
 }
+// storeFile 支持两种写法：
+//   绝对路径            —— CI 用（runner 上 keystore 落在临时位置）
+//   相对文件名          —— 本地用（相对 keystore.properties 所在目录，即 keys/）
+// 这样换机器/换系统都不用改口令文件，避免把开发机的绝对路径写死进去。
+def resolveStoreFile = { String raw ->
+    if (raw == null || raw.trim().isEmpty()) return null
+    def f = new File(raw.trim())
+    if (f.isAbsolute()) return f
+    return new File(keystorePropsFile.parentFile, raw.trim())
+}
 
 android {
     namespace 'com.life.restart'
@@ -32,18 +42,24 @@ android {
         applicationId "com.life.restart"
         minSdk 26
         targetSdk 34
-        versionCode 2
-        versionName "0.0.2"
+        versionCode 3
+        versionName "0.0.3"
         resConfigs "zh", "en"
     }
     signingConfigs {
         release {
             // 发布签名（自签 keystore），请妥善保管该文件，后续升级必须用同一份
-            if (keystorePropsFile.exists()) {
-                storeFile file(keystoreProps['storeFile'])
+            def ksFile = keystorePropsFile.exists()
+                    ? resolveStoreFile(keystoreProps['storeFile']) : null
+            if (ksFile != null && ksFile.exists()) {
+                storeFile ksFile
                 storePassword keystoreProps['storePassword']
                 keyAlias keystoreProps['keyAlias']
                 keyPassword keystoreProps['keyPassword']
+            } else if (keystorePropsFile.exists()) {
+                // 口令文件在、但密钥找不到：明确报出来，别静默产出未签名包
+                logger.warn("[签名] keystore.properties 里的 storeFile 指向的文件不存在：" +
+                        "${keystoreProps['storeFile']} -> ${ksFile}")
             }
             v1SigningEnabled true
             v2SigningEnabled true

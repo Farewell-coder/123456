@@ -137,11 +137,13 @@ function foldLoad(){
 }
 function foldApply(){
   const st = foldLoad();
-  /* 设置面板与数据管理页共用同一套折叠态（同一个 lr_fold），卡名不重名即可互不干扰 */
-  document.querySelectorAll('#modal .card[data-ck], #dbPage .card[data-ck]').forEach(card => {
-    /* 默认一律收起：只有玩家手动展开过（记录为 0）的卡才是展开态 */
+  /* 设置面板、数据管理页与调试页共用同一套折叠态（同一个 lr_fold），卡名不重名即可互不干扰 */
+  document.querySelectorAll('#modal .card[data-ck], #dbPage .card[data-ck], #dbgPage .card[data-ck]').forEach(card => {
+    /* 默认一律收起：只有玩家手动展开过（记录为 0）的卡才是展开态。
+       带 data-def="open" 的卡（调试页概览 / 错误日志）默认展开。 */
     const v = st[card.dataset.ck];
-    card.classList.toggle('fold', v === undefined ? true : !!v);
+    const defOpen = card.dataset.def === 'open';
+    card.classList.toggle('fold', v === undefined ? !defOpen : !!v);
   });
 }
 function foldToggle(card){
@@ -253,6 +255,109 @@ const saveHist = () => {
     console.warn('saveHist: 存档写入失败（本地存储不可用）');
 };
 
+/* ========== Token 消耗统计（API 设置 → Token 消耗统计） ==========
+   目标：把每次 AI 请求的用量按「自然日 + 小时」落盘，供统计页做
+   每日 / 每周 / 累计三个视角的趋势与汇总。
+   · 存储键 lr_tk 不带版本号，跟图鉴一样跨版本累积；
+   · 用量优先取接口返回的 usage，缺失时按字符数估算（中文约 1.6 字/token）；
+   · 只保留最近 TK_KEEP_DAYS 天，避免本地存储无限膨胀。 */
+const TK_KEY = 'lr_tk';
+const TK_KEEP_DAYS = 120;
+const tkYmd = d => {
+  const p = n => (n < 10 ? '0' : '') + n;
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+};
+const tkNum = v => { v = Number(v); return isFinite(v) && v > 0 ? v : 0; };
+function tkLoad(){
+  try{
+    const o = JSON.parse(lsGet(TK_KEY) || 'null');
+    if(o && o.days && typeof o.days === 'object') return o;
+  }catch(e){}
+  return {v:1, days:{}};
+}
+function tkSave(st){
+  /* 剪枝：只留最近 TK_KEEP_DAYS 天（字符串日期可直接按字典序比较） */
+  const cut = tkYmd(new Date(Date.now() - TK_KEEP_DAYS * 86400000));
+  Object.keys(st.days).forEach(k => { if(k < cut) delete st.days[k]; });
+  lsSet(TK_KEY, JSON.stringify(st));
+}
+/* 记一次 AI 请求的用量。usage 缺失时用 messages / 输出文本长度估算，保证统计不空白。 */
+function tkRecord(usage, messages, out){
+  const now = new Date();
+  const day = tkYmd(now), hour = now.getHours();
+  let pt = 0, ct = 0, tt = 0, cached = 0, real = false;
+  if(usage && typeof usage === 'object'){
+    pt = tkNum(usage.prompt_tokens);
+    ct = tkNum(usage.completion_tokens);
+    tt = tkNum(usage.total_tokens);
+    /* 缓存命中：DeepSeek 用 prompt_cache_hit_tokens，OpenAI 走 prompt_tokens_details.cached_tokens */
+    cached = tkNum(usage.prompt_cache_hit_tokens != null
+      ? usage.prompt_cache_hit_tokens
+      : (usage.prompt_tokens_details && usage.prompt_tokens_details.cached_tokens));
+    if(pt || ct || tt) real = true;
+  }
+  if(!real){
+    let inChars = 0;
+    (messages || []).forEach(m => { inChars += String((m && m.content) || '').length; });
+    pt = Math.ceil(inChars / 1.6);
+    ct = Math.ceil(String(out || '').length / 1.6);
+  }
+  if(!tt) tt = pt + ct;
+  if(!pt && !ct) return;
+  const st = tkLoad();
+  const r = st.days[day] || (st.days[day] = {req:0, pt:0, ct:0, tt:0, cached:0, h:new Array(24).fill(0)});
+  if(!r.h || r.h.length !== 24) r.h = new Array(24).fill(0);
+  r.req++; r.pt += pt; r.ct += ct; r.tt += tt; r.cached += cached; r.h[hour] += tt;
+  tkSave(st);
+}
+/* 汇总若干天的记录 */
+function tkSum(recs){
+  const o = {req:0, pt:0, ct:0, tt:0, cached:0};
+  (recs || []).forEach(r => {
+    if(!r) return;
+    o.req += tkNum(r.req); o.pt += tkNum(r.pt); o.ct += tkNum(r.ct);
+    o.tt += tkNum(r.tt); o.cached += tkNum(r.cached);
+  });
+  return o;
+}
+/* 日期平移（天）与解析 */
+function tkParse(ymd){
+  const m = String(ymd || '').split('-');
+  return new Date(Number(m[0]) || 1970, (Number(m[1]) || 1) - 1, Number(m[2]) || 1);
+}
+function tkShift(ymd, delta){
+  const d = tkParse(ymd);
+  d.setDate(d.getDate() + delta);
+  return tkYmd(d);
+}
+const tkMD = ymd => {
+  const m = String(ymd || '').split('-');
+  return (Number(m[1]) || 0) + '/' + (Number(m[2]) || 0);
+};
+/* 连续天数：当前连续（从今天或昨天往回数）与历史最长连续 */
+function tkStreak(st){
+  const days = Object.keys(st.days).sort();
+  let longest = 0, run = 0, prev = '';
+  days.forEach(k => {
+    run = (prev && tkShift(prev, 1) === k) ? run + 1 : 1;
+    if(run > longest) longest = run;
+    prev = k;
+  });
+  let cur = 0, d = tkYmd(new Date());
+  if(!st.days[d]) d = tkShift(d, -1);   // 今天还没用过，就从昨天起算
+  while(st.days[d]){ cur++; d = tkShift(d, -1); }
+  return {cur, longest};
+}
+/* Token 数量格式化：1.3K / 8.5M / 1.2G */
+function tkFmt(n){
+  n = Number(n) || 0;
+  const f = x => x.toFixed(1).replace(/\.0$/, '');
+  if(n >= 1e9) return f(n / 1e9) + 'G';
+  if(n >= 1e6) return f(n / 1e6) + 'M';
+  if(n >= 1e3) return f(n / 1e3) + 'K';
+  return String(Math.round(n));
+}
+
 /* ========== 主题 ========== */
 let mq = null;
 let timerTheme = null;
@@ -344,6 +449,19 @@ function toast(msg){
   clearTimeout(t._h);
   t._h = setTimeout(() => t.classList.remove('on'), 1800);
 }
+/* 触觉反馈：操作「完成」那一帧给一次 6–12ms 的轻震（规范：中等强度、单次、可全局关闭）。
+   · navigator.vibrate 只有 Android WebView / Chrome 支持，iOS 与桌面恒为 undefined，
+     所以一行 try/catch 兜住，调用方不用关心设备；
+   · 全局开关存在设置 → 外观与体验 → 触感反馈（cfg.hap，默认开）；
+   · 只在成功反馈时调用，失败/无变化不震 —— 震多了比不震更烦人。 */
+function haptic(ms){
+  try{
+    const c = getCfg();
+    if(c && c.hap === 0) return;
+    if(typeof navigator.vibrate !== 'function') return;
+    navigator.vibrate(ms || 8);
+  }catch(e){}
+}
 let dlgOpen = false;
 function dialog(title, desc, actions){
   $('#dlgT').textContent = title;
@@ -354,30 +472,57 @@ function dialog(title, desc, actions){
     b.textContent = a.t;
     if(a.pri) b.className = 'a1';
     if(a.plain) b.className = 'a3';
-    b.onclick = () => { closeDlg(); a.fn && a.fn(); };
+    b.onclick = () => { haptic(10); closeDlg(); a.fn && a.fn(); };
     box.appendChild(b);
   });
   $('#dlg').classList.add('on');
   dlgOpen = true;
 }
+/* 收起一层浮层：先摘 'on'（display 立刻回到可预期状态），再挂 'out' 播退出动画。
+   动画事件在两种情况下可能永远不来 —— 系统开了「减少动态效果」（animation 被全局禁用）、
+   或页面在后台标签页被冻结。所以再挂一个兜底定时器，保证 'out' 一定会被清掉；
+   否则元素会一直停在 display:flex 上，视觉上就是「这一层关不掉」。 */
 const exitLayer = el => {
   if(!el) return;
   if(!el.classList.contains('on')){ el.classList.remove('out'); return; }
   el.classList.remove('on');
   el.classList.add('out');
-  el.onanimationend = e => {
-    if(e.animationName === 'ovlOut'){ el.classList.remove('out'); el.onanimationend = null; }
+  let done = false;
+  const clear = () => {
+    if(done) return;
+    done = true;
+    clearTimeout(el._exitT); el._exitT = 0;
+    el.classList.remove('out');
+    clearGestureLeft(el);      /* 抽屉若被「下拉关闭」过，这里顺手把手势残留清干净 */
+    el.onanimationend = null;
   };
+  el._exitT = setTimeout(clear, 400);   /* 兜底：正常情况下 animationend 先到 */
+  el.onanimationend = e => { if(e.animationName === 'ovlOut') clear(); };
 };
+/* 手势残留清理：把拖拽期间挂的状态类与内联 transform 一次摘掉。
+   只摘不影响 display / 类名开合逻辑的那几个类，按钮怎么开怎么关一概不动。 */
+function clearGestureLeft(el){
+  if(!el) return;
+  el.classList.remove('dragging','settling','commit','held','dismissing');
+  el.style.transform = '';
+  el.style.opacity = '';
+  const box = el.querySelector && el.querySelector('.box');
+  if(box){
+    box.classList.remove('dragging','settling','commit','held','dismissing');
+    box.style.transform = '';
+    box.style.opacity = '';
+  }
+}
 const closeDlg = () => { dlgOpen = false; exitLayer($('#dlg')); };
 
-/* 游戏风格输入弹窗：替代原生 prompt()（原生弹窗样式丑、且不跟随主题） */
-function askText(title, defVal, ph, onOk){
+/* 游戏风格输入弹窗：替代原生 prompt()（原生弹窗样式丑、且不跟随主题）
+   第 5 个参数 hint 可选，用来替换默认的「请输入新的名称」提示。 */
+function askText(title, defVal, ph, onOk, hint){
   const box = $('#dlgI');
   box.innerHTML =
     '<div class="dc">' +
       '<h3>' + esc(title) + '</h3>' +
-      '<p class="sub">请输入新的名称</p>' +
+      '<p class="sub">' + esc(hint || '请输入新的名称') + '</p>' +
       '<input type="text" id="dlgIIn" autocomplete="off" placeholder="' + esc(ph || '') + '">' +
       '<div class="da">' +
         '<button class="a1" id="dlgIOk">确定</button>' +
@@ -401,17 +546,53 @@ const SCREENS = {
   LIFE_PLAYING:'#scPlay', GAME_OVER:'#scOver', DEX:'#scDex', REC:'#scRec'
 };
 function goState(s){
+  const prev = [];
+  Object.keys(SCREENS).forEach(k => {
+    if(k === s) return;
+    const el = $(SCREENS[k]);
+    if(el && el.classList.contains('on')) prev.push(el);
+  });
   CUR = s;
   Object.keys(SCREENS).forEach(k => {
     const el = $(SCREENS[k]);
-    if(el) el.classList[k === s ? 'add' : 'remove']('on');
+    if(!el) return;
+    if(k === s){
+      /* 重新进入：摘掉手势/退场残留。注意 .following 必须留着 ——
+         它表示「入场动画归手势管」，只有等这屏下次离开时才摘（见 screenLeave），
+         否则动画会在摘除的那一帧重新应用，整屏再演一遍入场。 */
+      el.classList.remove('leaving','dragging','settling','commit');
+      el.style.transform = '';
+      el.classList.add('on');
+    } else {
+      el.classList.remove('on');
+    }
   });
+  /* 新旧页重叠衔接：把上一屏留在原地垫底反向淡出（CSS .screen.leaving），
+     两端重叠 260ms，中间不露底色 —— 规范里「禁止白屏闪一下」就靠这一步。
+     系统开了「减少动画」时不挂：那时动画被全局禁用，留在原地反而多显示 400ms。 */
+  const reduce = !!(window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches);
+  if(!reduce) prev.forEach(screenLeave);
   window.scrollTo(0, 0);
   const pg = $(SCREENS[s] + ' .page');
   if(pg) pg.scrollTop = 0;
   if(s === 'MAIN_MENU') refreshMenu();
   if(s === 'DEX') renderDex();
   if(s === 'REC') renderRec();
+}
+/* 让某一屏「垫底退场」：摘 .on（布局立刻干净），挂 .leaving（absolute 垫底 + 反向淡出）。
+   400ms 兜底必然清干净 —— reduced-motion 下 animation 不跑，animationend 永远不来。 */
+function screenLeave(el){
+  if(!el) return;
+  clearTimeout(el._leaveT);
+  /* .following 立刻摘：它压的是入场动画，留着会连 .leaving 的退场动画一起压掉。
+     提交手势的场景不怕 —— 那时 .dragging 还挂着，仍然压着，直到兜底定时器一起清。 */
+  el.classList.remove('following');
+  el.classList.add('leaving');
+  el._leaveT = setTimeout(() => {
+    el.classList.remove('leaving','dragging','settling','commit');
+    el.style.transform = '';
+    el._leaveT = 0;
+  }, 420);
 }
 
 /* ========== 天赋抽取 ==========
@@ -449,7 +630,7 @@ const TALENT_EXTRA = DB_TALENTS.map((x, i) => {
   return {
     id: 'dbt' + i, n: x.n, r: x.r,
     good: good + (x.good ? '；' + x.good : ''),
-    bad: DB_TALENT_COST[x.n] || '代价说不太清楚，总之有',
+    bad: x.bad || DB_TALENT_COST[x.n] || '代价说不太清楚，总之有',
     init: init, hook: {}, db: true
   };
 });

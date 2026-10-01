@@ -107,6 +107,38 @@ function dbDupLocal(h){
   }
   return null;
 }
+/* ===== AI 查重的「对照集」选取 =====
+   老实现把「全部内置条目」+「全部待检条目」一次性塞进一个请求：
+   内置事件有 4605 条，光已有条目就是十万字级，远超上下文，
+   模型也不可能逐条比对 —— 请求必然被截断或胡乱作答，token 全白烧。
+   现在先做纯字符二元组粗筛，只把「最可能撞车」的一小组已有条目带进 prompt，
+   真正的语义判断仍交给 AI。粗筛只是选参照物，不做判定，误筛也不会漏判。 */
+function dbDupPool(uniq){
+  const grams = s => {
+    const o = {};
+    for(let i = 0; i + 2 <= s.length; i++) o[s.slice(i, i + 2)] = 1;
+    return Object.keys(o);
+  };
+  return uniq.map(t => ({t: t, g: grams(normTxt(t))}));
+}
+function dbDupRefs(pool, batch, cap){
+  const grams = s => {
+    const o = {};
+    for(let i = 0; i + 2 <= s.length; i++) o[s.slice(i, i + 2)] = 1;
+    return Object.keys(o);
+  };
+  const set = {};
+  batch.forEach(h => { grams(normTxt(h.text)).forEach(g => { set[g] = 1; }); });
+  const rows = pool.map(r => {
+    if(!r.g.length) return {t: r.t, s: 0};
+    let hit = 0;
+    r.g.forEach(g => { if(set[g]) hit++; });
+    return {t: r.t, s: hit / r.g.length};
+  });
+  rows.sort((a, b) => b.s - a.s);
+  const hit = rows.filter(r => r.s > 0.05).slice(0, cap);
+  return (hit.length ? hit : rows.slice(0, Math.min(cap, rows.length))).map(r => r.t);
+}
 /* ===== patch54：需求向量 req =====
    一条事件带上 req:{子键:期望值} 就表示「什么样的人才会遇上它」：
    角色当前这项隐藏属性的值离期望值越近（标准差 σ 越小），越容易被抽中。
@@ -309,8 +341,14 @@ function renderTkStat(){
    流程：本地规则先跑一遍 → 置信度不够的凑成一批交给 AI 复核 → AI 不可用就用本地结果。
    AI 输出契约：{"list":[{"i":0,"aff":["SKIN"],"req":{"SKIN":14}}]} */
 let affSyncBusy = false;
+/* 文本体检统一流程的取消开关（进度框里的「取消」按钮把它置真，各阶段循环据此提前退出） */
+let tkCancelled = false;
 /* 本地规则能给出高置信（≥0.75）就直接用，剩下的是「含糊的」交给 AI 看 */
 const AFF_CONF_OK = 0.75;
+/* AI 复核的分批上限：一批最多多少条、一批最多多少字符。
+   两条都要卡 —— 只卡条数时，长文案一样会把输出预算吃光、返回残缺。 */
+const AFF_BATCH_MAX = 8;
+const AFF_CHARS_MAX = 420;
 function affNeedList(){
   const list = dataOf('ev').filter(x => (x.__src == null ? 0 : x.__src) !== 0);
   const need = [];
@@ -336,7 +374,7 @@ async function aiAffJudge(batch){
     '严格只输出 JSON，不要解释、不要代码块标记。';
   const user =
     '【可选子项】' + subs + '\n' +
-    '【任务】对每条事件输出两项：\n' +
+    '【任务】对每条事件输出三项：\n' +
     '1. aff：这条事件讲的是哪几项子项（只填子项代号，如 SKIN / IMMU / LOGIC）。' +
     '只允许给 1 个或 3 个：这条事只说到一个侧面就给 1 个；说到同一维度的 3 个侧面就给 3 个，按贴切程度排序。' +
     '不确定就给最接近的那 1 个，不要编造。\n' +
@@ -350,10 +388,21 @@ async function aiAffJudge(batch){
     '取值范围 -10 ~ +10。所以「这项强的人才遇上」写 +4，「这项弱的人才遇上」写 -4，' +
     '看不出方向写 +1；确实与属性无关就留空 {}。\n' +
     '【待分类】\n' + lines.join('\n') + '\n' +
-    '【输出格式】{"list":[{"i":1,"aff":["SKIN"],"sex":"通用","req":{"SKIN":14}}]}（i 用上面给的序号）';
-  const raw = await callAI([{role:'system', content:sys}, {role:'user', content:user}], 1400, true);
+    /* 【修复】示例里给的是 {"SKIN":14}，可上面刚说取值范围 -10 ~ +10，
+       模型照着示例写 14 就会被 sanReq 钳回 10，量纲也不对。
+       示例改成合法值，并明确「每条都必须回一行，不要漏」。 */
+    '【输出格式】{"list":[{"i":1,"aff":["SKIN"],"sex":"通用","req":{"SKIN":4}}]}（i 用上面给的序号）\n' +
+    '待分类的每一条都要在 list 里出现一次，不要遗漏，也不要多编条目。';
+  /* 【修复】输出预算随批大小走：以前固定 1400，而 20 条一批时，
+     光 list 就要写 20 条 JSON（含 aff / sex / req），经常写到一半就被截断 ——
+     整批解析失败、退回本地规则，等于白烧一次。 */
+  const raw = await callAI([{role:'system', content:sys}, {role:'user', content:user}],
+    clamp(batch.length * 90 + 200, 400, 1400), true);
   const o = extractJSON(raw);
-  const arr = (o && (o.list || o.items || o.arr)) || null;
+  /* 【修复】extractJSON 优先取数组：模型回 {"list":[...]} 时拿到的是内层数组，
+     老写法只认 o.list/o.items/o.arr，于是 AI 的判定被整批丢掉、退回本地规则。
+     这里把「直接就是数组」的形状也收进来。 */
+  const arr = (o && (o.list || o.items || o.arr)) || (Array.isArray(o) ? o : null);
   if(!arr || !arr.length) return null;
   const out = {};
   arr.forEach(r => {
@@ -384,34 +433,23 @@ function affWrite(it, aff, req, sex){
   dataPut('ev', v);
   return true;
 }
-async function dbAffFill(){
-  if(affSyncBusy) return;
-  const need = affNeedList();
-  if(!need.length){
-    toast('你自己的条目都已分类完毕');
-    return;
-  }
-  const aiOk = aiReady();
-  dialog('同步 ' + need.length + ' 条事件的偏向',
-    '会对还没分类的「导入 / AI 加入」条目做三件事：\n' +
-    '① 判定它讲的是哪一项具体能力（隐藏子项，界面不显示）；\n' +
-    '② 判定它的性别编号 —— 男 / 女 / 通用（隐藏，只决定这条事谁可能遇上）；\n' +
-    '③ 估算它要求角色具备多少分才会发生（需求向量，决定「什么样的人会遇上」）。\n' +
-    (aiOk ? '先用规则跑一遍，拿不准的再交给 AI 复核。'
-          : '当前未启用 AI，将只用规则处理（可在设置里配置模型后再来，准确率更高）。') +
-    '\n只处理导入与 AI 加入的条目。',
-    [
-      {t:'开始同步', pri:true, fn:() => { runAffSync(need, aiOk); }},
-      {t:'取消', plain:true}
-    ]);
-}
-async function runAffSync(need, aiOk){
+/* 【体检重构】「同步偏向」不再单独弹确认框：并入「开始体检」统一流程。
+   这里只保留执行体，加上进度回调与取消支持，返回统计结果给统一流程收尾。 */
+async function tkAffSync(onProgress){
+  if(affSyncBusy) return {busy:true};
   affSyncBusy = true;
   let done = 0, viaAI = 0, skip = 0;
   try{
+    const need = affNeedList();
+    if(!need.length) return {done:0, viaAI:0, skip:0, empty:true};
+    const aiOk = aiReady();
+    const total = need.length;
+    const setP = (f, msg) => { if(onProgress) onProgress(f, msg); };
     /* 第一遍：本地规则直接落地 */
     const rest = [];
-    need.forEach(b => {
+    for(let i = 0; i < need.length; i++){
+      if(tkCancelled) return {done, viaAI, skip, cancelled:true};
+      const b = need[i];
       const a = sanAff(b.it.aff);
       const j = b.judge;
       if(!a.length && j.conf >= AFF_CONF_OK && j.aff.length){
@@ -422,14 +460,24 @@ async function runAffSync(need, aiOk){
       }else{
         rest.push(b);
       }
-    });
+      setP((i + 1) / total * 0.5, '规则分类 ' + (i + 1) + '/' + total);
+    }
     dbRender();
-    /* 第二遍：剩下的交给 AI 分批复核 */
+    /* 第二遍：剩下的交给 AI 分批复核。
+       按「单批条数上限」和「单批字符预算」双约束切批，让每个请求都能完整收尾。 */
     if(aiOk && rest.length){
-      const BATCH = 20;
       const batches = [];
-      for(let i = 0; i < rest.length; i += BATCH) batches.push(rest.slice(i, i + BATCH));
+      let cur = [], chars = 0;
+      rest.forEach(b => {
+        const len = String(b.it.text || '').length;
+        if(cur.length && (cur.length >= AFF_BATCH_MAX || chars + len > AFF_CHARS_MAX)){
+          batches.push(cur); cur = []; chars = 0;
+        }
+        cur.push(b); chars += len;
+      });
+      if(cur.length) batches.push(cur);
       for(let bi = 0; bi < batches.length; bi++){
+        if(tkCancelled) return {done, viaAI, skip, cancelled:true};
         const batch = batches[bi];
         let res = null;
         try{ res = await aiAffJudge(batch); }catch(e){ res = null; }
@@ -444,96 +492,207 @@ async function runAffSync(need, aiOk){
           const sx = (r && r.sex) ? r.sex : (s0 || sexJudge(b.it));
           if(r) viaAI++;
           if(!aff.length && !req && !sx){ skip++; return; }
-          if(affWrite(b.it, aff, req)) done++; else skip++;
+          if(affWrite(b.it, aff, req, sx)) done++; else skip++;
         });
-        setStatus('同步偏向… ' + Math.min((bi + 1) * 20, rest.length) + '/' + rest.length);
+        dbRender();
+        setP(0.5 + (bi + 1) / batches.length * 0.5, 'AI 复核 ' + (bi + 1) + '/' + batches.length);
       }
     }else if(rest.length){
       /* 没有 AI：剩下的一律用本地结果（判不出就只写 req，都没有就跳过） */
-      rest.forEach(b => {
+      for(let i = 0; i < rest.length; i++){
+        if(tkCancelled) return {done, viaAI, skip, cancelled:true};
+        const b = rest[i];
         const a0 = sanAff(b.it.aff);
         const q0 = sanReq(b.it.req);
         const aff = a0.length ? a0 : (b.judge.aff || []);
         const req = q0 || genReq(b.it, b.judge);
-        if(!aff.length && !req){ skip++; return; }
-        if(affWrite(b.it, aff, req)) done++; else skip++;
-      });
+        if(!aff.length && !req){ skip++; }
+        else if(affWrite(b.it, aff, req)) done++; else skip++;
+        setP(0.5 + (i + 1) / rest.length * 0.5, '规则分类 ' + (i + 1) + '/' + rest.length);
+      }
+      dbRender();
     }
-    dbRender();
-    setStatus('');
-    toast('同步完成：已分类 ' + done + ' 条' + (viaAI ? '（其中 ' + viaAI + ' 条经 AI 复核）' : '') +
-      (skip ? '，另有 ' + skip + ' 条信息不足被跳过' : ''));
-  }catch(e){
-    toast('同步中断：' + (e && e.message ? e.message : e));
+    return {done, viaAI, skip};
   }finally{
     affSyncBusy = false;
   }
 }
 let dbDupBusy = false;
-async function dbDedupScan(){
-  if(dbDupBusy) return;
+/* 【体检重构】查重执行体：不再自己弹确认框，把结果返回给统一流程去确认/删除。
+   onProgress(0..1, msg) 汇报进度；tkCancelled 为真时中途退出。
+   外面用 try/finally 保证 dbDupBusy 一定复位 —— 旧实现中途抛错会永久卡住按钮。 */
+async function tkDedupScan(onProgress){
+  if(dbDupBusy) return [];
   const cands = dbDupCands();
-  if(!cands.length){ toast('没有需要检测的条目'); return; }
+  if(!cands.length) return [];
   dbDupBusy = true;
-  toast('正在检测重复…');
-  const found = [];
-  const useAI = aiReady();
-  const byKind = {};
-  cands.forEach(h => { (byKind[h.kind] = byKind[h.kind] || []).push(h); });
-  for(const kind of Object.keys(byKind)){
-    const hs = byKind[kind];
-    if(useAI){
-      const all = dataOf(kind);
-      const seenL = {}, uniq = [];
-      all.filter(x => ((x.__src == null ? 0 : x.__src) === 0)).forEach(x => {
-        const t = String(dbMainText(kind, x) || '').trim();
-        if(!t) return;
-        const k = normTxt(t);
-        if(!k || seenL[k]) return;
-        seenL[k] = 1; uniq.push(t);
-      });
-      if(!uniq.length) continue;
-      const sys = '你是文本查重助手。判断「待检」中的条目是否与「已有」中的条目表达同一件事（换词、换场景、简写都算重复）。严格只输出 JSON，不要解释。';
-      const user =
-        '【已有条目】\n' + uniq.map((t, i) => (i + 1) + '. ' + t).join('\n') + '\n\n' +
-        '【待检条目】\n' + hs.map((h, i) => (i + 1) + '. ' + h.text).join('\n') + '\n\n' +
-        '只输出 {"dup":[{"i":待检编号,"j":已有编号}]}；把重复的逐对列出，没有重复就输出 {"dup":[]}。';
-      try{
-        const raw = await callAI([{role:'system',content:sys},{role:'user',content:user}], 900, true);
-        const o = extractJSON(raw);
-        const arr = (o && Array.isArray(o.dup)) ? o.dup : [];
-        arr.forEach(d => {
-          const i = Number(d && d.i) - 1, j = Number(d && d.j) - 1;
-          if(i >= 0 && i < hs.length && j >= 0 && j < uniq.length){
-            found.push({kind: kind, id: hs[i].id, label: hs[i].text, with: uniq[j]});
-          }
+  try{
+    const found = [];
+    const useAI = aiReady();
+    const byKind = {};
+    cands.forEach(h => { (byKind[h.kind] = byKind[h.kind] || []).push(h); });
+    const total = cands.length;
+    let done = 0;
+    const setP = msg => { if(onProgress) onProgress(total ? done / total : 0, msg); };
+    for(const kind of Object.keys(byKind)){
+      if(tkCancelled) break;
+      const hs = byKind[kind];
+      if(useAI){
+        const all = dataOf(kind);
+        const seenL = {}, uniq = [];
+        all.filter(x => ((x.__src == null ? 0 : x.__src) === 0)).forEach(x => {
+          const t = String(dbMainText(kind, x) || '').trim();
+          if(!t) return;
+          const k = normTxt(t);
+          if(!k || seenL[k]) return;
+          seenL[k] = 1; uniq.push(t);
         });
-      }catch(e){
-        /* AI 这条路失败 → 该类退回本地算法，保证按钮始终可用 */
-        hs.forEach(h => { const m = dbDupLocal(h); if(m) found.push({kind: kind, id: h.id, label: h.text, with: m.t}); });
+        if(!uniq.length) continue;
+        /* 把待检条目分批，每批只带一小组「最可能撞车的已有条目」作对照，
+           避免把 2000+ 条内置条目一次性塞进请求导致截断。 */
+        const batchSize = 12;
+        const pool = dbDupPool(uniq);
+        for(let off = 0; off < hs.length; off += batchSize){
+          if(tkCancelled) break;
+          const hb = hs.slice(off, off + batchSize);
+          const refs = dbDupRefs(pool, hb, 60);
+          if(!refs.length){
+            done += hb.length; setP('查重 ' + Math.min(done, total) + '/' + total);
+            continue;
+          }
+          const sys = '你是文本查重助手。判断「待检」中的条目是否与「已有」中的条目表达同一件事（换词、换场景、简写都算重复）。严格只输出 JSON，不要解释。';
+          const user =
+            '【已有条目】\n' + refs.map((t, i) => (i + 1) + '. ' + t).join('\n') + '\n\n' +
+            '【待检条目】\n' + hb.map((h, i) => (i + 1) + '. ' + h.text).join('\n') + '\n\n' +
+            '只输出 {"dup":[{"i":待检编号,"j":已有编号}]}；把重复的逐对列出，没有重复就输出 {"dup":[]}。';
+          try{
+            const raw = await callAI([{role:'system',content:sys},{role:'user',content:user}],
+              clamp(hb.length * 60 + 200, 300, 900), true);
+            const o = extractJSON(raw);
+            /* 【修复】extractJSON 优先取数组：模型回 {"dup":[...]} 时拿到的是内层数组，
+               老写法只认 o.dup，于是 AI 明明报了重复也被当成「没有重复」。两种形状都收。 */
+            const arr = (o && Array.isArray(o.dup)) ? o.dup : (Array.isArray(o) ? o : []);
+            arr.forEach(d => {
+              const i = Number(d && d.i) - 1, j = Number(d && d.j) - 1;
+              if(i >= 0 && i < hb.length && j >= 0 && j < refs.length){
+                found.push({kind: kind, id: hb[i].id, label: hb[i].text, with: refs[j]});
+              }
+            });
+          }catch(e){
+            /* AI 这条路失败 → 本批退回本地算法，保证按钮始终可用 */
+            hb.forEach(h => { const m = dbDupLocal(h); if(m) found.push({kind: kind, id: h.id, label: h.text, with: m.t}); });
+          }
+          done += hb.length;
+          setP('查重 ' + Math.min(done, total) + '/' + total);
+        }
+      }else{
+        for(let i = 0; i < hs.length; i++){
+          if(tkCancelled) break;
+          const h = hs[i];
+          const m = dbDupLocal(h); if(m) found.push({kind: kind, id: h.id, label: h.text, with: m.t});
+          done++;
+          setP('查重 ' + Math.min(done, total) + '/' + total);
+        }
       }
-    }else{
-      hs.forEach(h => { const m = dbDupLocal(h); if(m) found.push({kind: kind, id: h.id, label: h.text, with: m.t}); });
     }
+    /* 同一 kind+id 只留一条 */
+    const seen = {}, list = [];
+    found.forEach(f => { const k = f.kind + '|' + f.id; if(!seen[k]){ seen[k] = 1; list.push(f); } });
+    return list;
+  }finally{
+    dbDupBusy = false;
   }
-  dbDupBusy = false;
-  const seen = {}, list = [];
-  found.forEach(f => { const k = f.kind + '|' + f.id; if(!seen[k]){ seen[k] = 1; list.push(f); } });
-  if(!list.length){ toast('检测完成：未发现重复的条目'); return; }
-  const head = list.slice(0, 5).map(f =>
-    '【' + (DB_FIELDS[f.kind] ? DB_FIELDS[f.kind].t : f.kind) + '】' + f.label).join('　');
-  dialog('发现 ' + list.length + ' 条疑似重复',
-    head + (list.length > 5 ? '　…等共 ' + list.length + ' 条' : '') +
-    '　—— 确认后将删除以上条目。',
-    [
-      {t:'确认删除', pri:true, fn:() => {
-        let n = 0;
-        list.forEach(f => { if(dataDel(f.kind, f.id)) n++; });
+}
+
+/* ===== 文本体检进度框 =====
+   统一流程全程只用一个框：标题 + 进度条 + 百分比 + 当前步骤 + 按钮。
+   按钮既当「取消」，也当查重命中后的「删除/跳过」确认。 */
+function tkpShow(title, desc){
+  const el = $('#tkProg'); if(!el) return;
+  $('#tkpTitle').textContent = title;
+  if(desc != null) $('#tkpDesc').textContent = desc;
+  $('#tkpActs').innerHTML = '';
+  el.classList.add('on');
+}
+function tkpBar(pct, stat){
+  const p = Math.max(0, Math.min(100, Math.round((pct || 0) * 100)));
+  const bar = $('#tkpBar'); if(bar) bar.style.width = p + '%';
+  const pc = $('#tkpPct'); if(pc) pc.textContent = p + '%';
+  const st = $('#tkpStat'); if(st) st.textContent = stat || '';
+}
+function tkpActs(actions){
+  const box = $('#tkpActs'); if(!box) return;
+  box.innerHTML = '';
+  (actions || []).forEach(a => {
+    const b = document.createElement('button');
+    b.textContent = a.t;
+    if(a.pri) b.className = 'a1';
+    if(a.plain) b.className = 'a3';
+    b.onclick = () => { if(a.fn) a.fn(); };
+    box.appendChild(b);
+  });
+}
+const tkpClose = () => { const el = $('#tkProg'); if(el) el.classList.remove('on'); };
+function tkpAsk(title, desc, actions){
+  return new Promise(resolve => {
+    tkpShow(title, desc);
+    tkpActs(actions.map(a => ({t:a.t, pri:a.pri, plain:a.plain, fn:() => resolve(a.v)})));
+  });
+}
+/* 统一入口：查重 →（命中则确认删除）→ 同步偏向。全程一个进度框，可随时取消。 */
+let tkBusy = false;
+async function dbTkRun(){
+  if(tkBusy) return;
+  tkBusy = true;
+  tkCancelled = false;
+  try{
+    /* ① 查重 */
+    tkpShow('文本体检', '正在检测重复…');
+    tkpBar(0, '准备中…');
+    tkpActs([{t:'取消', plain:true, fn: () => { tkCancelled = true; }}]);
+    const dup = await tkDedupScan((f, msg) => tkpBar(f * 0.5, msg));
+    if(tkCancelled){ tkpClose(); return; }
+    let removed = 0;
+    if(dup.length){
+      const v = await tkpAsk('发现 ' + dup.length + ' 条疑似重复',
+        dup.slice(0, 5).map(f => '【' + (DB_FIELDS[f.kind] ? DB_FIELDS[f.kind].t : f.kind) + '】' + f.label).join('\n') +
+        (dup.length > 5 ? '\n…等共 ' + dup.length + ' 条' : '') + '\n\n确认后将删除以上条目（只删你那一条）。',
+        [
+          {t:'删除这 ' + dup.length + ' 条', pri:true, v:'del'},
+          {t:'跳过，继续同步', plain:true, v:'skip'}
+        ]);
+      if(v === 'del'){
+        dup.forEach(f => { if(dataDel(f.kind, f.id)) removed++; });
         dbRender();
-        toast('已清除 ' + n + ' 条重复条目');
-      }},
-      {t:'取消', plain:true}
-    ]);
+      }
+      if(tkCancelled){ tkpClose(); return; }
+    }
+    /* ② 同步偏向 */
+    tkpShow('文本体检', '正在同步偏向…');
+    tkpBar(0.5, '准备中…');
+    tkpActs([{t:'取消', plain:true, fn:() => { tkCancelled = true; }}]);
+    const r = (await tkAffSync((f, msg) => tkpBar(0.5 + f * 0.5, msg))) || {};
+    if(tkCancelled){ tkpClose(); return; }
+    /* ③ 收尾 */
+    let msg;
+    if(r.empty && !removed){
+      msg = '没有需要处理的条目。';
+    }else{
+      msg = '重复条目：已删除 ' + removed + ' 条；\n' +
+        '同步偏向：已分类 ' + (r.done || 0) + ' 条' +
+        (r.viaAI ? '（其中 ' + r.viaAI + ' 条经 AI 复核）' : '') +
+        (r.skip ? '，另有 ' + r.skip + ' 条信息不足被跳过' : '') + '。';
+    }
+    tkpShow('体检完成', msg);
+    tkpBar(1, '');
+    tkpActs([{t:'完成', pri:true, fn: tkpClose}]);
+  }catch(e){
+    tkpShow('体检中断', String((e && e.message) || e));
+    tkpBar(0, '');
+    tkpActs([{t:'关闭', pri:true, fn: tkpClose}]);
+  }finally{
+    tkBusy = false;
+  }
 }
 
 /* 「交互」是 ev 的一个筛选视图：存储、导入、导出、删除都落回 ev */
@@ -746,18 +905,23 @@ function dbExportText(){
 function dbExportFile(){
   const str = dbExportText();
   const name = 'MyLifeMySim_' + DB_FIELDS[dbKind].t + '_' + GAME_VER + '.json';
-  const r = androidSave(name, str);
-  if(r.ok){
-    toast('已导出到：' + r.path + (r.why === 'fallback'
-      ? '（所选目录写入失败，已回退到「下载」）' : ''));
-    return;
-  }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([str], {type:'application/json'}));
-  a.download = name;
-  document.body.appendChild(a); a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
-  toast('已导出：' + name + (r.why ? '；原生写入失败：' + r.why : ''));
+  const blob = new Blob([str], {type:'application/json'});
+  /* 兜底：老壳静默写「下载」，再不行走浏览器下载 */
+  const legacy = why => {
+    const r = androidSave(name, str);
+    if(r.ok){
+      toast('已导出到：' + r.path + (why ? '（另存为失败：' + why + '）'
+        : (r.why === 'fallback' ? '（所选目录写入失败，已回退到「下载」）' : '')));
+      return;
+    }
+    browserDownload(name, blob);
+  };
+  if(saveAsDialog(name, str, false, r => {
+    if(r.ok){ toast('已导出到：' + (r.path || name)); return; }
+    if(r.cancel){ toast('已取消导出'); return; }
+    legacy(r.err);
+  })) return;
+  legacy('');
 }
 function openDbPage(kind){
   if(kind) dbKind = kind;
@@ -856,16 +1020,10 @@ function bindDbUI(){
     out.classList.remove('hide');
   };
   $('#dbFile').onclick = dbExportFile;
-  /* 分步入口（与卡头「开始体检」并存，想单独跑某一步时用） */
-  $('#dbDedup').onclick = dbDedupScan;
-  const bAff = $('#dbAffFill'); if(bAff) bAff.onclick = dbAffFill;
-  /* 文本体检：卡头一个「开始体检」跑完两件事（查重 → 补写属性偏向）。
-     查重会先弹确认框逐条处理，所以这里 await 完再接着补写。 */
+  /* 文本体检：一个「开始体检」跑完两件事（查重 → 补写属性偏向），
+     全程用同一个进度框，可取消。 */
   const tkRun = $('#dbTkRun');
-  if(tkRun) tkRun.onclick = async () => {
-    await dbDedupScan();
-    dbAffFill();
-  };
+  if(tkRun) tkRun.onclick = dbTkRun;
   /* 数据管理页的卡片折叠：与设置页同一套 foldToggle（卡头内若点到按钮则不折叠） */
   document.querySelectorAll('#dbPage .card[data-ck] > .chead').forEach(h => {
     h.onclick = e => {
@@ -984,8 +1142,12 @@ async function openSummary(){
   let desc = dbEnd ? dbEnd.d : desc0;
   const newAch = checkAch();   // 死亡结算这一刻统一检测成就
   /* v0.0.2：本局没命中任何已有专属结局时，让 AI 按这一局真实面貌新写一个。
-     生成频率同样受 AI 占比滑条控制（0% 时不生成）；失败静默，退回评级称号。 */
-  if(!dbEnd && aiReady() && aiRatioT() > 0){
+     生成频率同样受 AI 占比滑条控制（0% 时不生成）；失败静默，退回评级称号。
+     【修复】此前这里是 if(!dbEnd && aiReady() && aiRatioT() > 0)，
+     但 dbEnd 命中的可能正是「上一局 AI 生成的、已入库的」专属结局 ——
+     那种情况下再让 AI 写一遍纯属重复请求（同一局结算最多生成一个 AI 结局）。 */
+  const dbEndIsAI = !!(dbEnd && dbEnd.origin === 'ai');
+  if(!dbEnd && !dbEndIsAI && aiReady() && aiRatioT() > 0){
     const pr0 = attrProfile();
     const aiEndNew = await aiGenEnding(
       '享年 ' + Math.round(S.age) + ' 岁｜' + ((era && era.n) || '') + '｜' + stageOf(S.age) + '离世\n' +
@@ -1008,7 +1170,13 @@ async function openSummary(){
   /* v0.1.4: 结算时自动把本局的 AI 结局/天赋入库（标 origin='ai'）。
      这里直接用上面那份 dbEnd（同一函数、无副作用），不再重复求值、也不再遮蔽同名变量。 */
   if(S && S.ending && aiReady()){
-    if(dbEnd && dbEnd.origin === 'ai'){ dataPut('end', dbEnd); }
+    /* dbEnd 命中的是「已在库中」的条目（dbEndingOf 遍历的就是 dataOf('end')），
+       这里若直接 dataPut(dbEnd) 会用它这个精简结构（id/n/d/origin）覆盖库里的完整条目；
+       取回原始条目再落库，既幂等又不会写入缺字段的畸形数据。 */
+    if(dbEnd && dbEnd.origin === 'ai' && dbEnd.id){
+      const src = dataOf('end').find(e => e.id === dbEnd.id);
+      if(src) dataPut('end', src);
+    }
     const talPool = (S.talents || []).map(id => talById(id)).filter(t => t && t.origin === 'ai');
     talPool.forEach(t => { dataPut('tal', t); });
   }
@@ -1058,10 +1226,15 @@ async function openSummary(){
   if(aiReady()){
     $('#ovText').textContent = text + '\n\n（AI 正在撰写墓志铭…）';
     try{
+      /* 【修复】结算时同时要写「AI 专属结局」和「AI 墓志铭」——两条请求先后发，
+         前面那条已经生成了称号（rk），墓志铭却还按「综合评分」写，
+         两者对不上（称号叫「孤独的守夜人」，墓志铭却在谈分数）。
+         现在把最终称号一并交给它，并让它承接结局的调子。 */
       const raw = await callAI([
-        {role:'system', content:'你是一位中文悼词作家，文风克制、有文学感，只输出墓志铭正文，不要任何解释。'},
+        {role:'system', content: WORLD_TINY + '\n【本次任务】你是一位中文悼词作家，文风克制、有文学感，只输出墓志铭正文，不要任何解释。'},
         {role:'user', content:'为下面这个人生写一段 80-140 字的墓志铭。\n' + ctxBrief() +
-          '\n享年 ' + Math.round(S.age) + ' 岁，综合评分 ' + sc + '。'}
+          '\n享年 ' + Math.round(S.age) + ' 岁，结局称号「' + rk + '」，综合评分 ' + sc + '。' +
+          '\n墓志铭要能承接这个称号的调子，不要复述称号本身，也不要喊口号。'}
       ], 500, true);
       if(raw && raw.trim()){
         const aiEpi = raw.trim();
@@ -1127,7 +1300,11 @@ async function die(my, why){
      反正算力已经花过了，勾了入库就一并收进内容库，没勾就整批丢弃。 */
   // ② 不再自动弹结算页，等用户点按钮（openSummary）
 }
-/* 把队列里剩余的 AI 事件并入 S.aiMade（已用过的在 tick 里已经进过了） */
+/* 把队列里剩余的 AI 事件并入 S.aiMade（已用过的在 tick 里已经进过了）
+   【修复】这里以前只收 {t, age, e, aff, sex}：AI 写的分支事件（o 选项）
+   与任务门槛（need）在收割那一刻被丢掉，于是「一键入库」进来的 AI 文案
+   全是普通事件，下一局再也不会弹选项 —— 玩家看到的「AI 不会写交互事件」
+   其实有一半是入库时被削掉的。现在整条记录原样带上，由 collectAiToDb 落库。 */
 function harvestAiQueue(){
   if(!S) return 0;
   if(!Array.isArray(S.aiMade)) S.aiMade = [];
@@ -1135,10 +1312,10 @@ function harvestAiQueue(){
   S.aiMade.forEach(z => { have[z.t] = 1; });
   let k = 0;
   (queue || []).forEach(q => {
-    if(!q || q.src !== 'AI' || !q.t) return;
-    if(have[q.t]) return;
-    have[q.t] = 1;
-    S.aiMade.push({t: q.t, age: Math.round(Number(q.age) || 0), e: q.e || {}, aff: q.aff || [], sex: q.sex || ''});
+    const it = aiMadeFull(q);
+    if(!it || have[it.t]) return;
+    have[it.t] = 1;
+    S.aiMade.push(it);
     k++;
   });
   return k;
@@ -1153,6 +1330,11 @@ function aiMadeCount(){
 }
 function renderAiDbRow(){
   if(REC_VIEW != null) return;   // 回看态：不碰入库行
+  /* 【本地模式】未启用 AI 时整局都不会有 AI 文案，这张卡片恒为 0、按钮恒禁用，
+     纯占地方。直接隐藏整张卡片，结算页只留玩家关心的内容。 */
+  const card = $('#ovAiDbRow') && $('#ovAiDbRow').closest('.card');
+  if(card && !aiReady()){ card.style.display = 'none'; return; }
+  if(card) card.style.display = '';
   AI_DB_DONE = false;            // v0.1.3 C：新的一轮结算，重新允许一键入库
   const n = aiMadeCount();
   const el = $('#ovAiDbN');
@@ -1374,6 +1556,11 @@ function exportSave(){
     progress: S ? {
       attr: S.attr, tags: S.tags, talents: S.talents, age: Math.round(S.age),
       diff: S.diff, era: S.era, lifespan: S.lifespan, flags: S.flags, used: S.used,
+      /* 以下字段 importSave 会逐项恢复，导出必须一并带上，否则读档后子项 Δ /
+         性别 / 机遇档 / 年度计数 / 本局 AI 文案 / 深渊值 / 人生大纲全部归零 */
+      sex: S.sex, hid: S.hid, fort: S.fort,
+      yearN: S.yearN, yearCnt: S.yearCnt, yearEvN: S.yearEvN, yearAttr: S.yearAttr,
+      aiMade: S.aiMade, abyss: S.abyss, outline: S.outline,
       logs: S.logs.slice(-200)
     } : null,
     dex: getDex(),
@@ -1389,19 +1576,22 @@ function exportSave(){
   const d = new Date();
   const name = 'MyLifeMySim_存档_' + d.getFullYear() +
     String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0') + '.json';
-  const r = androidSave(name, str);
-  if(r.ok){
-    toast('已导出到：' + r.path + (r.why === 'fallback'
-      ? '（所选目录写入失败，已回退到「下载」）' : ''));
-    return;
-  }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.appendChild(a); a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
-  toast('已导出：' + name + (withKey ? '（含密钥）' : '') +
-    (r.why ? '；原生写入失败：' + r.why : ''));
+  /* 兜底：老壳静默写「下载」，再不行走浏览器下载 */
+  const legacy = why => {
+    const r = androidSave(name, str);
+    if(r.ok){
+      toast('已导出到：' + r.path + (why ? '（另存为失败：' + why + '）'
+        : (r.why === 'fallback' ? '（所选目录写入失败，已回退到「下载」）' : '')));
+      return;
+    }
+    browserDownload(name, blob);
+  };
+  if(saveAsDialog(name, str, false, r => {
+    if(r.ok){ toast('已导出到：' + (r.path || name) + (withKey ? '（含密钥）' : '')); return; }
+    if(r.cancel){ toast('已取消导出'); return; }
+    legacy(r.err);
+  })) return;
+  legacy('');
 }
 function importSave(file){
   const rd = new FileReader();
@@ -1482,6 +1672,7 @@ function wipeAll(){
       lsDel(SAVE_REC);
       lsDel(SAVE_CFG);
       lsDel(DB_KEY);
+      lsDel(TK_KEY);   /* Token 用量统计也一并清空 */
       DBX = null;
       S = null; queue = [];
       applyTheme(); refreshMenu(); goState('MAIN_MENU');
@@ -1523,6 +1714,7 @@ function saveProfile(){
   const c = getCfg();
   c.on = swxGet('cfgOn');
     c.vol = Number($('#cfgVol').value) || 0;
+    c.hap = swxGet('cfgHap') ? 1 : 0;   /* 触感反馈全局开关（默认开） */
   c.spd = c.spd || 420;
   c.ai = clamp(Number($('#cfgAi').value) || 0, 0, 100);
   c.profiles[c.active] = {
@@ -1546,6 +1738,7 @@ function openSetInner(){
   renderProviderSel();
   renderProfiles();
   swxSet('cfgOn', !!c.on);
+  swxSet('cfgHap', c.hap !== 0);
     swxSet('expKey', false);
   // cfgChoice 隐藏，强制开启
   $('#cfgVol').value = c.vol || 0;
@@ -1610,7 +1803,7 @@ function bindUI(){
   $('#atBack').onclick = () => { alloc.mode = 'earth'; goState('TALENT_SELECTION'); };
   /* ====== 模式选择页 ====== */
   $('#modeBack').onclick = () => goState('MAIN_MENU');
-  $('#modeEarth').onclick = () => { alloc.mode = 'earth'; rollTalentsSmart(6); renderTalents(); goState('TALENT_SELECTION'); };
+  $('#modeEarth').onclick = () => { alloc.mode = 'earth'; resetTalGen(); rollTalentsSmart(6); renderTalents(); goState('TALENT_SELECTION'); };
   $('#atSet').onclick = openSet;
   $('#atReset').onclick = () => { setDiff(alloc.diff); toast('已重置加点'); };
   $('#btnUndo').onclick = () => undoPoint();
@@ -1650,6 +1843,7 @@ function bindUI(){
   $('#ovAgain').onclick = () => {
     if(REC_VIEW != null){ closeRecView(); return; }
     flushAiDb();
+    resetTalGen();
     rollTalentsSmart(6);
     renderTalents();
     goState('TALENT_SELECTION');
@@ -1676,9 +1870,9 @@ function bindUI(){
   if(ca) ca.onclick = () => openAbout();
 
   /* 自定义开关 */
-  ['cfgOn', 'expKey'].forEach(id => {
+  ['cfgOn', 'expKey', 'cfgHap'].forEach(id => {
     const el = $('#' + id);
-    if(el) el.onclick = () => el.classList.toggle('on');
+    if(el) el.onclick = () => { el.classList.toggle('on'); haptic(8); };
   });
   /* v0.1.3 C：结算页「一键入库」按钮 */
   const abd = $('#ovAiDbBtn');
@@ -1853,21 +2047,13 @@ $('#btnNewCfg').onclick = () => {
       note.textContent = '拉取失败（' + e.message + '）；可手动填模型名，例如 deepseek-v4-flash。';
     }
   };
-  $('#btnDir').onclick = () => {
-    if(window.Android && window.Android.pickSaveDir) window.Android.pickSaveDir();
-    else toast('当前环境不支持选择目录（文件会存到「下载」）');
-  };
+  /* 「选择备份目录」已移除：导出改为在导出时弹系统「另存为」，无需提前设置。
+     __onDirPicked / __onDirErr 仍保留（旧壳若调用不会报错）。 */
   window.__onDirPicked = p => {
     const el = $('#dirNow'); if(el) el.textContent = p || '';
     toast('备份目录已设：' + (p || ''));
   };
   window.__onDirErr = () => toast('未选择目录，文件仍会存到「下载」');
-  try{
-    if(window.Android && window.Android.getSaveDir && $('#dirNow')){
-      const d0 = window.Android.getSaveDir();
-      if(d0) $('#dirNow').textContent = d0;
-    }
-  }catch(e){}
   $('#btnExport').onclick = exportSave;
   $('#btnImport').onclick = () => $('#fileIn').click();
   $('#fileIn').onchange = e => {
@@ -1950,7 +2136,10 @@ function startLife(){
    关于页：软件说明 + 版本号；版本号连点 5 次进入调试面板。
    调试面板：运行概览、运行日志、导出诊断 zip、危险区。 */
 const DIAG_LOG_MAX = 400;
+/* 结构化错误缓冲：单独留一份，便于面板单列一卡、导出时生成可读的「错误日志.txt」 */
+const ERR_MAX = 120;
 let LOG_BUF = [];
+let ERR_BUF = [];
 let AB_TAPS = 0, AB_TAP_TS = 0, DBG_ON = false;
 /* 危险区把 AI 占比临时改成 0 时，原值备份在这里（持久化，重启 App 也能恢复） */
 const DG_AIBACK_KEY = 'lr_dbg_aibak';
@@ -1968,17 +2157,122 @@ function logLine(tag, msg){
   while(LOG_BUF.length > DIAG_LOG_MAX) LOG_BUF.shift();
   if(DBG_ON){ const el = $('#dbgLog'); if(el) el.textContent = LOG_BUF.length ? LOG_BUF.join('\n') : '（空）'; }
 }
-/* 把页面所有报错都收进日志缓冲（调试面板里能看到） */
-(function(){
-  window.addEventListener('error', e => {
-    try{ logLine('ERR', String(e.message || '') + ' @' + String(e.filename || '') + ':' + String(e.lineno || 0)); }catch(x){}
+/* ===== 错误日志：结构化记录 + 可读定位 =====
+   目标：导出时能一眼看出「哪个文件、第几行、第几列、什么错、怎么调用过来的」。 */
+function errShortFile(u){
+  const s = String(u == null ? '' : u);
+  if(!s) return '';
+  const q = s.split(/[?#]/)[0];
+  const i = Math.max(q.lastIndexOf('/'), q.lastIndexOf('\\'));
+  return i >= 0 ? q.slice(i + 1) : q;
+}
+function errLoc(r){
+  const parts = [];
+  const f = errShortFile(r && r.file);
+  if(f) parts.push(f);
+  if(r && r.line) parts.push('第 ' + r.line + ' 行');
+  if(r && r.col) parts.push('第 ' + r.col + ' 列');
+  return parts.join(' ');
+}
+function errKindName(k){
+  return ({ script:'脚本异常', promise:'Promise 未处理', console:'console.error', resource:'资源加载失败' })[k] || '错误';
+}
+function errClock(ts){
+  const t = new Date(ts || Date.now());
+  const p2 = n => String(n).padStart(2, '0');
+  return p2(t.getHours()) + ':' + p2(t.getMinutes()) + ':' + p2(t.getSeconds());
+}
+/* 记一条错误：进结构化缓冲，同时镜像一行到运行日志（顺带能看到） */
+function logErr(rec){
+  try{
+    rec = rec || {};
+    rec.t = Date.now();
+    rec.msg = String(rec.msg == null ? '未知错误' : rec.msg).slice(0, 500);
+    if(rec.stack){
+      /* 调用栈只留最上面几帧，够定位就行，免得导出文件被刷屏 */
+      const fr = String(rec.stack).split('\n').filter(l => l.trim());
+      rec.stack = fr.slice(0, 8).join('\n');
+    }
+    ERR_BUF.push(rec);
+    while(ERR_BUF.length > ERR_MAX) ERR_BUF.shift();
+    const loc = errLoc(rec);
+    logLine(rec.kind === 'promise' ? 'REJ' : 'ERR', rec.msg + (loc ? '　@' + loc : ''));
+    if(DBG_ON) renderErrLog();
+  }catch(x){}
+}
+/* 面板显示用：倒序（最新在上），带位置与调用栈 */
+function errPanelText(){
+  if(!ERR_BUF.length) return '（暂无错误）';
+  return ERR_BUF.slice().reverse().map((r, i) => {
+    const loc = errLoc(r);
+    let s = '#' + (ERR_BUF.length - i) + ' [' + errClock(r.t) + '] ' + errKindName(r.kind) + '\n' + r.msg;
+    if(loc) s += '\n位置：' + loc;
+    if(r.stack) s += '\n调用栈：\n' + r.stack;
+    return s;
+  }).join('\n────────────────\n');
+}
+/* 导出用：给人看的完整错误报告（含说明与逐条定位） */
+function errExportText(){
+  const L = [];
+  L.push('========== 错误日志 ==========');
+  L.push('说明：本文件收录游戏运行期间捕获到的错误，共 ' + ERR_BUF.length + ' 条（最多保留 ' + ERR_MAX + ' 条）。');
+  L.push('每条包含：序号、发生时间、错误类型、错误信息、出错位置（文件名 / 行 / 列）与调用栈。');
+  L.push('位置里的文件名对应 assets/js/ 下的源码，行号可直接用来定位（源码未压缩）。');
+  L.push('');
+  if(!ERR_BUF.length){ L.push('（本次运行未捕获到任何错误）'); return L.join('\n'); }
+  ERR_BUF.forEach((r, i) => {
+    L.push('────────────────────────────');
+    L.push('[' + (i + 1) + '] ' + new Date(r.t).toLocaleString() + '　类型：' + errKindName(r.kind));
+    L.push('  错误信息：' + r.msg);
+    L.push('  出错位置：' + (errLoc(r) || '（未提供）'));
+    if(r.file) L.push('  文件路径：' + r.file);
+    if(r.stack){
+      L.push('  调用栈：');
+      String(r.stack).split('\n').forEach(l => L.push('    ' + l.trim()));
+    }
+    L.push('');
   });
+  return L.join('\n');
+}
+/* 把页面所有报错都收进日志缓冲（调试面板里能看到，导出时另存成「错误日志.txt」） */
+(function(){
+  /* 用捕获阶段：这样连 <img>/<script>/<link> 这类资源加载失败也能收到 */
+  window.addEventListener('error', e => {
+    try{
+      const tg = e && e.target;
+      if(tg && tg !== window && !e.message && (tg.tagName || tg.src || tg.href)){
+        const tag = String(tg.tagName || '').toLowerCase();
+        const src = String(tg.src || tg.href || '');
+        logErr({ kind:'resource', msg:'资源加载失败：<' + tag + '> ' + src, file: src, line:0, col:0 });
+        return;
+      }
+      const err = e && e.error;
+      logErr({
+        kind:'script',
+        msg: String((e && e.message) || (err && err.message) || '脚本错误'),
+        file: String((e && e.filename) || ''),
+        line: (e && e.lineno) || 0,
+        col: (e && e.colno) || 0,
+        stack: (err && err.stack) ? err.stack : ''
+      });
+    }catch(x){}
+  }, true);
   window.addEventListener('unhandledrejection', e => {
-    try{ const r = e.reason; logLine('REJ', String((r && (r.message || r)) || '').slice(0, 200)); }catch(x){}
+    try{
+      const r = e && e.reason;
+      const msg = (r && (r.message || r)) || '未处理的 Promise 拒绝';
+      logErr({ kind:'promise', msg: String(msg).slice(0, 500), stack: (r && r.stack) ? r.stack : '' });
+    }catch(x){}
   });
   const ce = console.error;
   console.error = function(){
-    try{ logLine('ERR', Array.prototype.map.call(arguments, a => (a && a.message) ? a.message : String(a)).join(' ').slice(0, 200)); }catch(x){}
+    try{
+      const msg = Array.prototype.map.call(arguments, a => (a && a.message) ? a.message : String(a)).join(' ');
+      /* 用临时 Error 取调用点；前两帧是包装函数本身，丢掉 */
+      const st = (new Error()).stack || '';
+      const frames = st.split('\n').slice(2, 8).join('\n');
+      logErr({ kind:'console', msg: msg.slice(0, 500), stack: frames });
+    }catch(x){}
     try{ ce.apply(console, arguments); }catch(x){}
   };
 })();
@@ -2066,6 +2360,7 @@ function lsDump(){
 function diagText(){
   const o = diagSnapshot();
   return 'My Life, My Sim  诊断信息\n' + JSON.stringify(o, null, 2) +
+    '\n\n' + errExportText() +
     '\n\n========== 运行日志 ==========\n' + (LOG_BUF.length ? LOG_BUF.join('\n') : '（空）');
 }
 /* ---- 最小 ZIP 打包（store 模式，不引任何外部库） ---- */
@@ -2151,6 +2446,39 @@ function copyText(t){
   }catch(e){}
   fb();
 }
+/* ===== 导出：导出时弹系统「另存为」，由用户当场选目录与文件名 =====
+   原生 saveFileAs / saveBytesAs 是异步的：返回 true 表示对话框已拉起，
+   真正结果走 window.__onSaved / __onSaveCancel / __onSaveErr 回调。
+   返回 false 表示当前壳不支持（旧版本），调用方回退到旧逻辑。 */
+let SAVE_AS_CB = null;
+function saveAsFinish(r){
+  const cb = SAVE_AS_CB; SAVE_AS_CB = null;
+  if(cb) cb(r || {});
+}
+window.__onSaved = function(p){ saveAsFinish({ ok:true, path:String(p == null ? '' : p) }); };
+window.__onSaveCancel = function(){ saveAsFinish({ ok:false, cancel:true }); };
+window.__onSaveErr = function(m){ saveAsFinish({ ok:false, err:String(m == null ? '' : m) }); };
+function saveAsDialog(name, data, isBinary, cb){
+  const A = window.Android;
+  const fn = isBinary ? (A && A.saveBytesAs) : (A && A.saveFileAs);
+  if(!fn) return false;
+  SAVE_AS_CB = cb;
+  let launched = false;
+  try{ launched = !!fn.call(A, name, data); }catch(e){ launched = false; }
+  if(!launched) SAVE_AS_CB = null;
+  return launched;
+}
+/* 浏览器兜底：<a download>（原生不可用时） */
+function browserDownload(name, blob){
+  try{
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    toast('已导出：' + name);
+  }catch(e){ toast('导出失败：' + e.message); }
+}
 function exportDiag(){
   const d = new Date();
   const p2 = n => String(n).padStart(2, '0');
@@ -2158,22 +2486,27 @@ function exportDiag(){
   const name = 'MyLifeMySim_诊断_' + stamp + '.zip';
   const u8 = zipStore([
     {name: '诊断信息.txt', data: scrubSecrets(diagText())},
+    {name: '错误日志.txt', data: scrubSecrets(errExportText())},
     {name: '运行日志.txt', data: scrubSecrets(LOG_BUF.length ? LOG_BUF.join('\n') : '（空）')},
     {name: '设备存储.txt', data: scrubSecrets(lsDump())}
   ]);
-  let saved = '';
-  if(window.Android && window.Android.saveBytes){
-    try{ saved = window.Android.saveBytes(name, u8b64(u8)) || ''; }catch(e){ saved = ''; }
-  }
-  if(saved){ toast('诊断包已导出到：' + saved); return; }
-  try{
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([u8], {type:'application/zip'}));
-    a.download = name;
-    document.body.appendChild(a); a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
-    toast('已导出：' + name);
-  }catch(e){ toast('导出失败：' + e.message); }
+  const b64 = u8b64(u8);
+  const blob = new Blob([u8], {type:'application/zip'});
+  /* 兜底：老壳静默写「下载」，再不行走浏览器下载 */
+  const legacy = why => {
+    let saved = '';
+    if(window.Android && window.Android.saveBytes){
+      try{ saved = window.Android.saveBytes(name, b64) || ''; }catch(e){ saved = ''; }
+    }
+    if(saved){ toast('诊断包已导出到：' + saved + (why ? '（另存为失败：' + why + '）' : '')); return; }
+    browserDownload(name, blob);
+  };
+  if(saveAsDialog(name, b64, true, r => {
+    if(r.ok){ toast('诊断包已导出到：' + (r.path || name)); return; }
+    if(r.cancel){ toast('已取消导出'); return; }
+    legacy(r.err);
+  })) return;
+  legacy('');
 }
 /* ---- 关于页 / 调试页 ---- */
 function openAbout(){
@@ -2185,6 +2518,8 @@ function openAbout(){
 const closeAbout = () => exitLayer($('#aboutPage'));
 function openDbg(){
   DBG_ON = true;
+  /* 回放调试页各卡的折叠态（概览 / 错误日志默认展开，其余默认收起） */
+  try{ foldApply(); }catch(e){}
   renderDbg();
   $('#dbgPage').classList.add('on');
   logLine('DBG', '打开调试面板');
@@ -2214,23 +2549,9 @@ function devSet(on){
   syncDev();
   toast(DEV_ON ? '无敌模式已开启' : '无敌模式已关闭');
 }
-/* 开关状态、按钮显隐、加点页刷新 */
+/* 开关状态、加点页刷新（无敌模式的入口在悬浮窗，调试面板不再放开关） */
 function syncDev(){
-  const sw = $('#dgDev'); if(sw) sw.classList.toggle('on', DEV_ON);
-  const acts = $('#dgDevActs'); if(acts) acts.classList.toggle('hide', !DEV_ON);
   if(CUR === 'ATTR_ALLOC'){ try{ renderAttr(); renderDiff(); }catch(e){} }
-}
-/* 立即结束当前这一局 */
-function devEndLife(){
-  if(!DEV_ON){ toast('请先开启无敌模式'); return; }
-  if(!S || S.dead){ toast('当前没有进行中的一局'); return; }
-  dialog('立即结束这一局？', '会按当前 ' + Math.round(S.age) + ' 岁的属性直接结算（无敌模式专用），确定吗？', [
-    {t:'结束', pri:true, fn:() => {
-      logLine('DEV', '手动结束一局（' + Math.round(S.age) + ' 岁）');
-      die();
-    }},
-    {t:'取消', plain:true}
-  ]);
 }
 /* 一键解锁全部成就（真正执行；返回本次新增个数） */
 function doAchAll(){
@@ -2250,7 +2571,6 @@ function doClearAch(){
 }
 /* 一键解锁全部成就（危险区入口） */
 function devAllAch(){
-  if(!DEV_ON){ toast('请先开启无敌模式'); return; }
   dialog('一键解锁全部成就？', '会把成就表里的全部成就直接标记为已达成，并写进图鉴（其中带属性加成的成就，以后开局会照常生效）。', [
     {t:'全部解锁', pri:true, fn:() => {
       const n = doAchAll();
@@ -2261,7 +2581,6 @@ function devAllAch(){
 }
 /* 清空成就（危险区入口） */
 function devClearAch(){
-  if(!DEV_ON){ toast('请先开启无敌模式'); return; }
   dialog('清空全部生涯数据？',
     '会整体重置图鉴：成就、通关次数、天赋收集、标签收集、最长寿命全部清空，此操作不可恢复。',
     [
@@ -2313,6 +2632,12 @@ function dgSyncLocal(){
   if(now) now.textContent = '当前 AI 占比 ' + cur + '%' + (AIPCT_BAK != null
     ? '｜被危险区改成了 0%，点上面「恢复 AI 占比」即可还原' : '');
 }
+function renderErrLog(){
+  const el = $('#dbgErr');
+  if(el) el.textContent = errPanelText();
+  const c = $('#dbgErrCnt');
+  if(c) c.textContent = ERR_BUF.length ? (ERR_BUF.length + ' 条') : '';
+}
 function renderDbg(){
   const o = diagSnapshot();
   const row = (k, v) => '<div class="dbgrow"><span class="k">' + esc(k) + '</span><span class="v">' +
@@ -2339,12 +2664,14 @@ function renderDbg(){
   h += row('天赋', ext.天赋 == null ? '—' : String(ext.天赋));
   h += row('成就/结局', (ext.成就 == null ? '—' : ext.成就) + ' / ' + (ext.结局 == null ? '—' : ext.结局));
   h += row('标签', ext.标签 == null ? '—' : String(ext.标签));
+  h += row('错误', ERR_BUF.length ? (ERR_BUF.length + ' 条（见「错误日志」）') : '无');
   h += row('当前人生', o.life ? (life.age + ' 岁 · 日志 ' + life.logs + ' 条' + (life.dead ? ' · 已结束' : '')) : '未开局');
   if(o.life) h += row('属性', JSON.stringify(life.attr));
   h += row('存储', (o.storeKeys || []).map(k => k + ':' + fmtSize(o.store[k])).join('　') || '（空）');
   $('#dbgBody').innerHTML = h;
   const lg = $('#dbgLog');
   if(lg) lg.textContent = LOG_BUF.length ? LOG_BUF.join('\n') : '（空）';
+  renderErrLog();
   dgSyncLocal();
   syncDev();
 }
@@ -2366,6 +2693,15 @@ function renderDbg(){
   const rf = $('#dbgRefresh'); if(rf) rf.onclick = () => { renderDbg(); toast('已刷新'); };
   const cp = $('#dbgCopy'); if(cp) cp.onclick = () => copyText(diagText());
   const zp = $('#dbgZip'); if(zp) zp.onclick = exportDiag;
+  const ec = $('#dgErrCopy'); if(ec) ec.onclick = () => copyText(errExportText());
+  const ex = $('#dgErrClear'); if(ex) ex.onclick = () => { ERR_BUF = []; renderErrLog(); toast('错误日志已清空'); };
+  /* 调试页卡片折叠：与设置页 / 数据管理页同一套 foldToggle */
+  document.querySelectorAll('#dbgPage .card[data-ck] > .chead').forEach(h => {
+    h.onclick = e => {
+      if(e.target.closest('button')) return;
+      foldToggle(h.closest('.card[data-ck]'));
+    };
+  });
   const f1 = $('#dgFails'); if(f1) f1.onclick = () => { aiFails = 0; logLine('DBG', '重置 AI 失败计数'); toast('AI 失败计数已清零'); renderDbg(); };
   const f2 = $('#dgQueue'); if(f2) f2.onclick = () => { const n = queue.length; queue = []; aiLastFrom = -1; logLine('DBG', '清空事件队列 ' + n + ' 条'); toast('已清空队列（' + n + ' 条）'); renderDbg(); };
   const f3 = $('#dgLocal'); if(f3) f3.onclick = () => {
@@ -2398,13 +2734,163 @@ function renderDbg(){
   };
   const fr = $('#dgFloatRow'); if(fr) fr.onclick = () => floatSet(!floatSync());
   floatSync();
-  const dr = $('#dgDevRow'); if(dr) dr.onclick = () => devSet(!DEV_ON);
-  const d1 = $('#dgEndLife'); if(d1) d1.onclick = devEndLife;
   const d2 = $('#dgAchAll'); if(d2) d2.onclick = devAllAch;
   const d3 = $('#dgAchClear'); if(d3) d3.onclick = devClearAch;
   dgSyncLocal();
   syncDev();
   logLine('SYS', '初始化完成 v' + GAME_VER);
+})();
+
+/* =========================================================
+   Token 消耗统计页（入口：设置 → API 设置 → 用量统计）
+   数据由 tkRecord()（见 02-core.js）在每次 AI 请求后落盘，
+   这里只负责呈现：每日 / 每周 / 累计三个视角 + 折线趋势 + 四宫格汇总。
+   ========================================================= */
+let TK_TAB = 'day';       // day | week | all
+let TK_DATE = '';         // 每日 / 每周 选中的基准日（YYYY-MM-DD）
+
+const tkPad2 = n => (n < 10 ? '0' : '') + n;
+
+/* 折线图：把一组数值画成带网格、面积填充与数据点的 SVG。
+   xa / xb 是横轴两端文字（每日为 00:00~23:00，其余为首尾日期）。
+   数值全部来自统计结果，不拼接用户输入，无需转义；横轴文字走 esc()。 */
+function tkChartSVG(series, xa, xb){
+  const W = 480, H = 200, L = 46, R = 14, T = 16, B = 30;
+  const iw = W - L - R, ih = H - T - B;
+  /* 无数据时画一条贴底的平线（空数组会让 d 以 "L" 开头，是非法路径） */
+  const raw = (series && series.length) ? series : null;
+  const vals = raw || [0, 0];
+  const n = Math.max(1, vals.length);
+  const max = Math.max.apply(null, vals.concat([0]));
+  const top = max > 0 ? max * 1.18 : 1;
+  const X = i => L + (n <= 1 ? iw / 2 : iw * i / (n - 1));
+  const Y = v => T + ih - (v / top) * ih;
+  const line = vals.map((v, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1)).join(' ');
+  const base = (T + ih).toFixed(1);
+  const area = line + ' L' + X(n - 1).toFixed(1) + ' ' + base + ' L' + X(0).toFixed(1) + ' ' + base + ' Z';
+  let g = '';
+  [0, 0.5, 1].forEach(f => {
+    const y = (T + ih - f * ih).toFixed(1);
+    g += '<line class="tku-gl" x1="' + L + '" y1="' + y + '" x2="' + (W - R) + '" y2="' + y + '"/>' +
+         '<text class="tku-gt" x="' + (L - 8) + '" y="' + (Number(y) + 4) + '" text-anchor="end">' + tkFmt(top * f) + '</text>';
+  });
+  /* 点太多就不画数据点，避免累计视角下糊成一片；无数据也不画 */
+  const dots = (raw && n <= 32) ? raw.map((v, i) =>
+    '<circle class="tku-dot" cx="' + X(i).toFixed(1) + '" cy="' + Y(v).toFixed(1) + '" r="2.8"/>').join('') : '';
+  const xl = '<text class="tku-gt" x="' + L + '" y="' + (H - 9) + '" text-anchor="start">' + esc(xa) + '</text>' +
+             '<text class="tku-gt" x="' + (W - R) + '" y="' + (H - 9) + '" text-anchor="end">' + esc(xb) + '</text>';
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="tku-svg">' +
+    '<defs><linearGradient id="tkuFill" x1="0" y1="0" x2="0" y2="1">' +
+    '<stop offset="0%" class="s1"/><stop offset="100%" class="s2"/></linearGradient></defs>' +
+    g + '<path class="tku-area" d="' + area + '"/>' +
+    '<path class="tku-line" d="' + line + '"/>' + dots + xl + '</svg>';
+}
+
+function renderTku(){
+  const st = tkLoad();
+  const today = tkYmd(new Date());
+  if(!TK_DATE) TK_DATE = today;
+  if(TK_DATE > today) TK_DATE = today;
+  const isDay = TK_TAB === 'day';
+
+  /* 周期内包含哪些天 */
+  let days = [];
+  if(isDay) days = [TK_DATE];
+  else if(TK_TAB === 'week'){ for(let i = 6; i >= 0; i--) days.push(tkShift(TK_DATE, -i)); }
+  else days = Object.keys(st.days).sort();
+
+  const sum = tkSum(days.map(k => st.days[k]));
+  const sk = tkStreak(st);
+
+  /* 图表序列 + 横轴 + 峰值说明 */
+  let series, xa, xb, cap;
+  if(isDay){
+    const r = st.days[TK_DATE];
+    series = (r && r.h && r.h.length === 24) ? r.h.slice() : new Array(24).fill(0);
+    xa = '00:00'; xb = '23:00';
+    const ph = series.indexOf(Math.max.apply(null, series));
+    cap = tkPad2(ph) + ':00 · ' + tkFmt(series[ph]);
+  }else{
+    series = days.map(k => { const r = st.days[k]; return r ? tkNum(r.tt) : 0; });
+    xa = days.length ? tkMD(days[0]) : '';
+    xb = days.length ? tkMD(days[days.length - 1]) : '';
+    const peak = Math.max.apply(null, series.concat([0]));
+    cap = days.length ? (tkMD(days[series.indexOf(peak)]) + ' · ' + tkFmt(peak)) : '暂无记录';
+  }
+
+  const price = Number(getCfg().tkPrice) || 0;
+  const cost = sum.tt / 1e6 * price;
+
+  $('#tkuTotal').textContent = tkFmt(sum.tt);
+  $('#tkuCost').textContent = '¥' + cost.toFixed(2);
+  $('#tkuPrice').textContent = price > 0 ? ('单价 ¥' + price + '/M') : '设置单价';
+  $('#tkuPeak').textContent = tkFmt(Math.max.apply(null, series.concat([0])));
+  $('#tkuReq').textContent = String(sum.req);
+  $('#tkuCache').textContent = (sum.pt ? Math.min(100, Math.round(sum.cached / sum.pt * 100)) : 0) + '%';
+  $('#tkuOut').textContent = tkFmt(sum.ct);
+  $('#tkuPills').innerHTML =
+    '<span class="tku-pill">当前连续 ' + sk.cur + ' 天</span>' +
+    '<span class="tku-pill">最长连续 ' + sk.longest + ' 天</span>';
+  $('#tkuCap').textContent = cap;
+  $('#tkuChart').innerHTML = tkChartSVG(series, xa, xb);
+
+  /* 日期控件：仅每日 / 每周需要 */
+  $('#tkuDateWrap').classList.toggle('hide', TK_TAB === 'all');
+  $('#tkuDateTx').textContent = tkMD(TK_DATE);
+  const di = $('#tkuDateIn');
+  if(di) di.value = TK_DATE;
+
+  /* 分段选中态 */
+  document.querySelectorAll('#tkuSeg button').forEach(b => b.classList.toggle('on', b.dataset.t === TK_TAB));
+}
+
+function openTkuPage(){
+  if(!TK_DATE) TK_DATE = tkYmd(new Date());
+  renderTku();
+  $('#tkPage').classList.add('on');
+}
+const closeTkuPage = () => exitLayer($('#tkPage'));
+
+/* ---- 绑定 ---- */
+(function bindTku(){
+  const btn = $('#btnTkuStat'); if(btn) btn.onclick = () => openTkuPage();
+  const bk = $('#tkuBack'); if(bk) bk.onclick = closeTkuPage;
+  const seg = $('#tkuSeg');
+  if(seg) seg.onclick = e => {
+    const b = e.target.closest('button[data-t]');
+    if(!b) return;
+    TK_TAB = b.dataset.t;
+    renderTku();
+  };
+  /* 每日步进 1 天、每周步进 7 天；不允许走到未来 */
+  const step = delta => {
+    const t = tkShift(TK_DATE || tkYmd(new Date()), TK_TAB === 'week' ? delta * 7 : delta);
+    if(t > tkYmd(new Date())) return;
+    TK_DATE = t;
+    renderTku();
+  };
+  const pv = $('#tkuPrev'); if(pv) pv.onclick = () => step(-1);
+  const nx = $('#tkuNext'); if(nx) nx.onclick = () => step(1);
+  const db = $('#tkuDateBtn'); if(db) db.onclick = () => {
+    const di = $('#tkuDateIn');
+    if(!di) return;
+    try{ if(di.showPicker) di.showPicker(); else di.click(); }catch(e){ try{ di.click(); }catch(_){} }
+  };
+  const di = $('#tkuDateIn'); if(di) di.onchange = () => {
+    const v = String(di.value || '');
+    if(v && v <= tkYmd(new Date())){ TK_DATE = v; renderTku(); }
+    else { di.value = TK_DATE; }
+  };
+  /* 单价：用于估算总费用（本机没有各模型的价目表，交给用户填） */
+  const pr = $('#tkuPrice'); if(pr) pr.onclick = () => {
+    askText('设置 Token 单价', getCfg().tkPrice || 0, '例如 2', v => {
+      if(v == null) return;
+      const n = Math.max(0, Number(String(v).replace(/[^0-9.]/g, '')) || 0);
+      const c = getCfg(); c.tkPrice = n; setCfg(c);
+      renderTku();
+      toast(n > 0 ? ('单价已设为 ¥' + n + ' / 百万 Token') : '已关闭费用估算');
+    }, '每百万 Token 的单价（元），用于估算总费用；填 0 表示不计费');
+  };
 })();
 
 /* =========================================================
@@ -2466,10 +2952,13 @@ async function bootPrepare(g){
     await bootWait(() => buildOutline(g), 9000);
     if(g !== gen) return;
 
-    const to = Math.max(6, Math.round((S && S.lifespan) || LIFE_BASE));
-    /* 预加载量放大：分片数按「每年条数 × AI 占比」折算，不再只按年数切 */
+    const life = Math.max(6, Math.round((S && S.lifespan) || LIFE_BASE));
+    /* 【只预生成前 PRELOAD_BOOT_YEARS 年】把整辈子（最多 90 年）一次性生成是最大的
+       token 开销来源：角色若早死，后面几十年全白烧。读条阶段只铺前若干年，
+       其余交给进游戏后的 prefetch() 边玩边补（同一套并发闸门与去重）。 */
+    const to = Math.min(life, PRELOAD_BOOT_YEARS);
     const plan = planBootLoad(1, to);
-    const tasks = planTasks(1, plan.to, plan.nReq);
+    const tasks = markChoiceTasks(planTasks(1, plan.to, plan.nReq, plan.epy));
     preTotal = tasks.length; preDone = 0; preTarget = plan.to;
 
     bootShow('正在预生成这一生…', 8);
@@ -2568,10 +3057,24 @@ window.__floatAsk = function(text, cbName){
     try{
       const cf = floatCfg();
       if(!cf.ok){ done({ok:false, msg:'还没有配置可用的 AI 接口，请先在游戏的「设置 → 模型配置」里填好。'}); return; }
+      /* 【增强】随身助手以前只拿到世界书 + 玩家那句话，对「我这局现在什么情况」一无所知，
+         于是问「我该怎么办」只能给泛泛的鸡汤。现在把当前这一局的全局状态一起给它：
+         年龄 / 阶段 / 属性 / 子项偏向 / 标签 / 天赋 / 剩余寿命 / 深渊值 / AI 占比。
+         这些都是本地现成的数据，几乎不增加 token，却让回答真正落在这一局上。 */
+      const state = (function(){
+        try{
+          if(!S) return '当前没有进行中的人生。';
+          return '【玩家当前这一局】' + ctxBrief() +
+            '｜深渊值：' + abyssTotal() +
+            '｜已走过 ' + ((S.logs || []).length) + ' 条事件' +
+            (S.dead ? '｜这一局已结束' : '');
+        }catch(e){ return ''; }
+      })();
       const raw = await callAI([
-        {role:'system', content: WORLD_BOOK + '\n\n【本次任务】你是这款游戏的随身助手，用简洁平实的中文回答玩家的问题。'},
-        {role:'user', content: String(text || '').slice(0, 800)}
-      ], 700);
+        {role:'system', content: WORLD_TINY + '\n\n【本次任务】你是这款游戏的随身助手：用简洁平实的中文回答玩家的问题，' +
+          '机制问题可以直说数值与规则；若给了「玩家当前这一局」，回答要结合他的实际处境，不要讲空话。'},
+        {role:'user', content: (state ? state + '\n\n' : '') + String(text || '').slice(0, 600)}
+      ], 600);
       done({ok:true, msg: String(raw || '（没有返回内容）')});
     }catch(e){
       done({ok:false, msg:'请求失败：' + ((e && e.message) || e)});
@@ -2622,3 +3125,243 @@ try{ const _purged = dbPurgeLocalDup(); if(_purged && typeof dbRender === 'funct
 applyTheme();
 refreshMenu();
 goState('MAIN_MENU');
+/* 本地模式预热：后台构建事件库与派生字段，避免玩家点「继续」后首次抽事件时卡顿。
+   实测冷启动首次 dataOf('ev') 约 227ms（桌面），低端机更久；预热后首次抽事件 < 1ms。
+   用 setTimeout(0) 让出主线程，绝不阻塞启动渲染。 */
+function warmupLocalLib(){
+  try{
+    if(typeof builtinEv === 'function') builtinEv();
+    if(typeof dataOf === 'function') dataOf('ev');
+    if(typeof STAGES !== 'undefined' && typeof stageSrc === 'function'){
+      STAGES.forEach(st => { try{ stageSrc(st); }catch(e){} });
+    }
+  }catch(e){}
+}
+if(typeof requestIdleCallback === 'function'){
+  try{ requestIdleCallback(() => warmupLocalLib(), { timeout: 3000 }); }catch(e){ setTimeout(warmupLocalLib, 0); }
+}else{
+  setTimeout(warmupLocalLib, 0);
+}
+
+/* ============================================================
+   移动端手势层（纯增量，绑在初始化之后）
+   ------------------------------------------------------------
+   ① 边缘右滑返回 —— 复用每个屏幕自带的返回键 onclick：
+      「滑回来」和「点返回键」走的是同一段代码，返回键的开合方式一个字没改；
+   ② 设置抽屉下拉关闭 —— 只在 scrollTop=0 的把手上接管，松手按位移/速度决定关或弹回；
+   ③ 全部用 passive 监听 + touch-action 分工，绝不 preventDefault 滚动方向的手势，
+      竖向滚动、数据页横向分段条照常；位移只写 transform，一帧一次样式写入。
+   ------------------------------------------------------------
+   跟手状态机（CSS 里的 .dragging / .following / .settling / .commit 同名）：
+      .dragging  手指按着 —— 关掉自带动画，will-change 挂上；
+      .following 「入场动画归手势管」—— 必须与 .on 同寿，否则松手那帧会重播整屏入场；
+      .settling  松手回位（decelerate）；.commit 松手离场（accelerate）。
+   ============================================================ */
+(function mobileGestures(){
+  const q = s => document.querySelector(s);
+  /* 当前屏 → 返回键点下去会回到的屏（与各屏 back onclick 的实际去向一一对应） */
+  const BACK_DEST = {
+    scMode:'#scMenu', scTalent:'#scMenu', scAttr:'#scTalent',
+    scDex:'#scMenu', scRec:'#scMenu', scOver:'#scMenu', scPlay:'#scMenu'
+  };
+  const EDGE = 26;        /* 左缘识别宽度（dp） */
+  const ACT = 10;         /* 位移超过它才认定为「滑」，小于算误碰 */
+  const RATIO = 0.34;     /* 松手时超过 34% 屏宽 → 返回 */
+  const FLING = 0.6;      /* 或者甩动速度 > 0.6 px/ms 且已滑出 ≥24px —— 决定性的一甩 */
+
+  const setX = (el, px) => { el.style.transform = px ? 'translateX(' + px.toFixed(1) + 'px)' : ''; };
+  /* 弹层是否挡在上面：一律按「实际能不能看见」判断，不猜类名 ——
+     #tkProg 用的是 display:none 而不是 .hide，按类名判会误伤（手势永远起不来）。 */
+  const vis = id => { const e = q(id); if(!e) return false; return getComputedStyle(e).display !== 'none'; };
+  const overlayOpen = () =>
+    ['#modal','#dlg','#dlgI','#tkProg','#dbPage','#aboutPage','#dbgPage','#dbgDb','#bootPage','#dbgDlg'].some(vis);
+
+  let g = null;            /* 跟手中的返回手势 */
+  let pend = 0, finish = null;   /* 松手后的收尾定时器 + 它要做的事 */
+
+  const runPending = () => {
+    if(!pend) return;
+    clearTimeout(pend); pend = 0;
+    const f = finish; finish = null;
+    if(f) f();
+  };
+  const schedule = (fn, ms) => {
+    finish = fn;
+    pend = setTimeout(() => { pend = 0; finish = null; fn(); }, ms);
+  };
+  /* 回位：解掉 .dragging/.settling（.following 留着 —— 这是不重播入场的关键） */
+  function springBack(cur, dest){
+    cur.classList.remove('commit');
+    cur.classList.add('settling');
+    setX(cur, 0);
+    schedule(() => {
+      cur.classList.remove('dragging','settling');
+      dest.classList.remove('leaving','following');
+      dest.style.transform = '';
+    }, 320);
+  }
+
+  document.addEventListener('touchstart', e => {
+    if(!e.touches || e.touches.length !== 1) return;
+    if(pend) runPending();                     /* 上一次回位还没结束 → 立刻收尾再开始（可打断） */
+    const cur = document.querySelector('.screen.on');
+    if(!cur || cur._leaveT) return;
+    const dest = BACK_DEST[cur.id];
+    if(!dest) return;
+    const back = cur.querySelector('.topbar .tb');
+    if(!back || typeof back.onclick !== 'function') return;
+    if(overlayOpen()) return;
+    /* 结算页在「回看」子视图时，返回键是关子视图而不是换屏 —— 不开手势 */
+    try{ if(cur.id === 'scOver' && typeof REC_VIEW !== 'undefined' && REC_VIEW != null) return; }catch(err){}
+    /* 进行中的人生，返回键先弹「保存并返回」确认框，不是直接换屏 —— 不开手势，
+       免得拖到一半变成「背景已换成主菜单、结果弹了个框」的错位 */
+    try{ if(cur.id === 'scPlay' && !(typeof S === 'undefined' || !S || S.dead)) return; }catch(err){ return; }
+    const t = e.touches[0];
+    if(t.clientX > EDGE) return;
+    if(e.target && e.target.closest && e.target.closest('input,textarea,select,.dbseg,[contenteditable]')) return;
+    const d = q(dest);
+    if(!d) return;
+    g = { cur, back, dest:d, x0:t.clientX, y0:t.clientY, lx:t.clientX, lt:performance.now(),
+          dx:0, vx:0, active:false };
+  }, {passive:true});
+
+  document.addEventListener('touchmove', e => {
+    if(!g || !e.touches || !e.touches.length) return;
+    const t = e.touches[0];
+    const dx = t.clientX - g.x0, dy = t.clientY - g.y0;
+    if(!g.active){
+      if(Math.abs(dx) >= ACT && Math.abs(dx) > Math.abs(dy)){        /* 横向为主 → 接管 */
+        g.active = true;
+        g.dest.classList.add('leaving','following');   /* 返回目标屏垫底（静态，不播动画） */
+        g.cur.classList.add('dragging','following');   /* 入场动画从这一刻起归手势管 */
+        if(g.dest.id === 'scMenu'){ try{ refreshMenu(); }catch(err){} }
+      }else if(Math.abs(dy) >= ACT + 6){ g = null; return; }          /* 竖向 → 归滚动 */
+      else return;
+    }
+    /* 速度只在「采样间隔 ≥6ms」时更新 —— 太密的样本会算出手指做不到的假甩动；
+       间隔不够就保留上一次的测量点，等下一次用更长窗口测（更稳）。同时封顶 3px/ms。 */
+    const now = performance.now();
+    const dt = now - g.lt;
+    if(dt >= 6){ g.vx = Math.min(3, (t.clientX - g.lx) / dt); g.lx = t.clientX; g.lt = now; }
+    g.dx = Math.max(0, dx);
+    setX(g.cur, g.dx);                                  /* 1:1 跟手，只写 transform */
+  }, {passive:true});
+
+  const endGesture = () => {
+    if(!g) return;
+    const G = g; g = null;
+    if(!G.active) return;
+    const w = window.innerWidth || 360;
+    const go = G.dx >= w * RATIO || (G.vx > FLING && G.dx >= 24);
+    const {cur, back, dest} = G;
+    if(go){
+      cur.classList.add('commit');
+      let nav = false;
+      setX(cur, w);                                     /* 先滑出去（ease-in） */
+      try{ back.onclick(); nav = !cur.classList.contains('on'); }catch(err){ nav = false; }
+      if(nav){
+        /* goState 已把它改成 .leaving 并保留 transform/.dragging —— 滑出动作继续跑完，
+           420ms 后由 screenLeave 的兜底定时器一次性收干净（reduced-motion 下也不会残留）。 */
+        haptic(9);
+      }else{                                             /* 没换屏（弹了确认框）→ 原路弹回 */
+        springBack(cur, dest);
+      }
+    }else{
+      springBack(cur, dest);
+    }
+  };
+  document.addEventListener('touchend', endGesture, {passive:true});
+  document.addEventListener('touchcancel', endGesture, {passive:true});
+
+  /* ---------- 设置抽屉：把手上向下拖关闭（跟手 + 阻尼，松手按位移/速度决定） ---------- */
+  const modal = q('#modal'), mbox = q('#modal .box'), bar = q('#modal .bar');
+  if(modal && mbox && bar){
+    let s = null;
+    bar.addEventListener('touchstart', e => {
+      if(!modal.classList.contains('on') || !e.touches || e.touches.length !== 1) return;
+      if(mbox.scrollTop > 0) return;                 /* 正在看下面的内容 → 归滚动 */
+      const t = e.touches[0];
+      s = { y0:t.clientY, x0:t.clientX, d:0, active:false };
+    }, {passive:true});
+    bar.addEventListener('touchmove', e => {
+      if(!s || !e.touches || !e.touches.length) return;
+      const t = e.touches[0];
+      const dy = t.clientY - s.y0, dx = t.clientX - s.x0;
+      if(!s.active){
+        if(dy >= 12 && dy > Math.abs(dx)){
+          s.active = true;
+          mbox.classList.add('dragging','held');     /* 关掉 sheetIn，避免与内联 transform 打架 */
+        }else if(Math.abs(dx) >= 12 || dy < -8){ s = null; return; }
+        else return;
+      }
+      const h = mbox.offsetHeight || window.innerHeight;
+      const L = h * 0.3;
+      const v = Math.max(0, dy);
+      const d = v <= L ? v : L + (v - L) * 0.35;      /* 前段 1:1 跟手，越界转阻尼 */
+      s.d = d;
+      mbox.style.transform = 'translateY(' + d.toFixed(1) + 'px)';
+      mbox.style.opacity = String(Math.max(0.3, 1 - d / h * 0.7));
+    }, {passive:true});
+    const sheetEnd = () => {
+      if(!s) return;
+      const was = s.active, d = s.d || 0;
+      s = null;
+      if(!was) return;
+      const h = mbox.offsetHeight || window.innerHeight;
+      if(d > h * 0.25){                                /* 够远 /（松手即触发）→ 关闭 */
+        mbox.classList.add('dismissing');
+        mbox.style.transform = 'translateY(100%)';
+        mbox.style.opacity = '0';
+        setTimeout(() => {
+          saveProfile(); closeSet();                   /* 与返回键完全一致的关闭路径 */
+          schedule(() => {
+            mbox.classList.remove('dragging','held','dismissing');
+            mbox.style.transform = ''; mbox.style.opacity = '';
+          }, 450);
+        }, 240);
+      }else{                                           /* 没到阈值 → 弹回 */
+        mbox.classList.add('settling');
+        mbox.style.transform = '';
+        mbox.style.opacity = '';
+        schedule(() => mbox.classList.remove('dragging','settling'), 320);   /* .held 等关闭时摘 */
+      }
+    };
+    bar.addEventListener('touchend', sheetEnd, {passive:true});
+    bar.addEventListener('touchcancel', sheetEnd, {passive:true});
+    /* 抽屉一关闭（任何路径：返回键、确认框、手势）就把残留状态清掉，
+       否则 .held 会把下一次打开的入场动画一起压掉 */
+    new MutationObserver(() => {
+      if(modal.classList.contains('on') || !mbox.classList.contains('held')) return;
+      setTimeout(() => {
+        if(modal.classList.contains('on')) return;
+        mbox.classList.remove('dragging','held','settling','dismissing');
+        mbox.style.transform = ''; mbox.style.opacity = '';
+      }, 450);
+    }).observe(modal, {attributes:true, attributeFilter:['class']});
+  }
+
+  /* ---------- 键盘弹出：把聚焦的输入框带进可视区 ----------
+     外壳已设 windowSoftInputMode=adjustResize（高度会让出来），这里只做「必要时才滚」，
+     block:'nearest' 表示已经看得见就一动不动 —— 不跳、不遮挡、收起时自然回位。 */
+  document.addEventListener('focusin', e => {
+    const el = e.target;
+    if(!el || !/^(INPUT|TEXTAREA)$/.test(el.tagName || '')) return;
+    setTimeout(() => { try{ el.scrollIntoView({block:'nearest'}); }catch(err){} }, 80);
+  });
+
+  /* ---------- 进后台 / 低电量：只关装饰性动画，保留按压、开关这类必要反馈 ---------- */
+  const root = document.documentElement;
+  document.addEventListener('visibilitychange', () => {
+    root.classList.toggle('quiet', document.hidden);
+  });
+  try{
+    if(navigator.getBattery){
+      navigator.getBattery().then(bat => {
+        const upd = () => root.classList.toggle('eco', bat.level <= 0.15 && !bat.charging);
+        upd();
+        bat.addEventListener('levelchange', upd);
+        bat.addEventListener('chargingchange', upd);
+      }).catch(() => {});
+    }
+  }catch(err){}
+})();

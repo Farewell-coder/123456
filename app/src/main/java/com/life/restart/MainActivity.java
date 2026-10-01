@@ -59,13 +59,19 @@ public class MainActivity extends Activity {
     private static final int REQ_DIR = 1002;
     /** 悬浮窗授权请求码（需求 A） */
     private static final int REQ_OVERLAY = 1003;
+    /** 「另存为」请求码：导出时拉起系统保存对话框，由用户当场选目录与文件名 */
+    private static final int REQ_SAVE = 1004;
+    /** 待写入的导出文件临时名（放缓存目录，避免进程被杀后内存里的字节丢失） */
+    private static final String TMP_SAVE = "lr_pending_save.bin";
 
     private WebView web;
     private ValueCallback<Uri[]> filePathCallback;
-    /** 用户选定的备份目录（SAF tree uri），持久化在 SharedPreferences */
+    /** 用户选定的备份目录（SAF tree uri），持久化在 SharedPreferences（保留作旧壳兜底） */
     private Uri saveTreeUri = null;
     /** 上一次写文件失败的原因；供页面显示，避免「静默回退到下载」让人以为路径没生效 */
     private String lastSaveErr = "";
+    /** 正在等待「另存为」对话框返回的文件名 */
+    private String pendingSaveName = null;
     private SharedPreferences sp(){
         return getSharedPreferences("lr_shell", MODE_PRIVATE);
     }
@@ -83,6 +89,91 @@ public class MainActivity extends Activity {
                     : (!vol.isEmpty() ? "/storage/" + vol : "");
             return rel.isEmpty() ? base : base + "/" + rel;
         }catch(Exception e){ return ""; }
+    }
+    /** 把 document uri 的 docId 还原成人类可读路径（另存为成功后的回执用） */
+    private String docPath(Uri uri){
+        try{
+            if(uri == null) return "";
+            String id = DocumentsContract.getDocumentId(uri);
+            if(id == null) return "";
+            int c = id.indexOf(':');
+            String vol = c < 0 ? "" : id.substring(0, c);
+            String rel = c < 0 ? id : id.substring(c + 1);
+            String base = "primary".equals(vol)
+                    ? Environment.getExternalStorageDirectory().getAbsolutePath()
+                    : (!vol.isEmpty() ? "/storage/" + vol : "");
+            return rel.isEmpty() ? base : base + "/" + rel;
+        }catch(Exception e){ return ""; }
+    }
+    /** 把字符串安全地嵌进 JS 单引号字面量（转义引号与换行，避免注入/截断） */
+    private static String jsStr(String s){
+        if(s == null) return "''";
+        StringBuilder b = new StringBuilder("'");
+        for(int i = 0; i < s.length(); i++){
+            char c = s.charAt(i);
+            switch(c){
+                case '\\': b.append("\\\\"); break;
+                case '\'': b.append("\\'"); break;
+                case '\n': b.append("\\n"); break;
+                case '\r': b.append("\\r"); break;
+                case '\u2028': b.append("\\u2028"); break;
+                case '\u2029': b.append("\\u2029"); break;
+                default: b.append(c);
+            }
+        }
+        return b.append("'").toString();
+    }
+    /** 回调页面上的某个函数（带一个字符串参数），统一在 UI 线程执行 */
+    private void notifyJs(final String fn, final String arg){
+        if(web == null) return;
+        final String js = "(function(){try{if(window." + fn + ")window." + fn + "(" + jsStr(arg) + ");}catch(e){}})()";
+        web.post(new Runnable(){ public void run(){ web.evaluateJavascript(js, null); }});
+    }
+    private File pendingSaveFile(){ return new File(getCacheDir(), TMP_SAVE); }
+    private byte[] readPendingBytes(){
+        try{
+            File f = pendingSaveFile();
+            if(!f.exists()) return null;
+            java.io.FileInputStream in = new java.io.FileInputStream(f);
+            byte[] buf = new byte[(int) f.length()];
+            int off = 0, n;
+            while(off < buf.length && (n = in.read(buf, off, buf.length - off)) > 0) off += n;
+            in.close();
+            return off == buf.length ? buf : null;
+        }catch(Exception e){ return null; }
+    }
+    private void deletePendingFile(){ try{ pendingSaveFile().delete(); }catch(Exception ignored){} }
+    /**
+     * 拉起系统「另存为」对话框（ACTION_CREATE_DOCUMENT），把字节暂存到缓存文件，
+     * 等用户选完目录与文件名后由 onActivityResult 真正写入。
+     * 返回 true 表示对话框已拉起（结果走 window.__onSaved / __onSaveCancel / __onSaveErr 回调）。
+     */
+    private boolean startSaveAs(final String name, final String mime, final byte[] bytes){
+        try{
+            FileOutputStream fo = new FileOutputStream(pendingSaveFile());
+            fo.write(bytes);
+            fo.flush();
+            fo.close();
+        }catch(Exception e){
+            return false;
+        }
+        pendingSaveName = name;
+        runOnUiThread(new Runnable(){
+            @Override public void run(){
+                try{
+                    Intent it = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                    it.addCategory(Intent.CATEGORY_OPENABLE);
+                    it.setType(mime);
+                    it.putExtra(Intent.EXTRA_TITLE, name);
+                    startActivityForResult(it, REQ_SAVE);
+                }catch(Exception e){
+                    pendingSaveName = null;
+                    deletePendingFile();
+                    notifyJs("__onSaveErr", "无法打开系统保存对话框：" + e.getMessage());
+                }
+            }
+        });
+        return true;
     }
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -111,6 +202,10 @@ public class MainActivity extends Activity {
 
         web.setBackgroundColor(0xFF0E0E14);
         web.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
+        // 恢复「另存为」对话框进行中的文件名（进程被回收后仍能完成写入）
+        if (savedInstanceState != null) {
+            pendingSaveName = savedInstanceState.getString("pending_save_name", null);
+        }
         // 恢复上次选定的备份目录（SAF 持久授权）
         try{
             String u = sp().getString("save_tree", "");
@@ -210,7 +305,7 @@ public class MainActivity extends Activity {
         }
         if (web.getUrl() == null) {
             web.clearCache(true);
-            web.loadUrl("file:///android_asset/index.html?v=0.0.2");
+            web.loadUrl("file:///android_asset/index.html?v=0.0.3");
         }
     }
 
@@ -488,6 +583,34 @@ public class MainActivity extends Activity {
             return true;
         }
 
+        /**
+         * 【导出时选位置】把文本交给系统「另存为」对话框：用户当场选目录与文件名。
+         * 返回 true 表示对话框已拉起，结果走 window.__onSaved / __onSaveCancel / __onSaveErr。
+         * 返回 false 表示原生不支持，页面回退到旧逻辑（静默写「下载」）。
+         */
+        @JavascriptInterface
+        public boolean saveFileAs(String name, String content) {
+            byte[] bytes;
+            try {
+                bytes = content.getBytes("UTF-8");
+            } catch (Exception e) {
+                return false;
+            }
+            return startSaveAs(name, "application/json", bytes);
+        }
+
+        /** 【导出时选位置】二进制版（诊断 zip 用），content 是 base64 文本 */
+        @JavascriptInterface
+        public boolean saveBytesAs(String name, String b64) {
+            byte[] bytes;
+            try {
+                bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT);
+            } catch (Exception e) {
+                return false;
+            }
+            return startSaveAs(name, "application/zip", bytes);
+        }
+
         /** 页面探测用：壳版本号，便于排查 */
         /* ==================== 需求 A：悬浮球 ==================== */
 
@@ -590,6 +713,39 @@ public class MainActivity extends Activity {
             }
             return;
         }
+        /* 【导出时选位置】系统「另存为」对话框返回：把暂存字节写到用户选定的文件 */
+        if (requestCode == REQ_SAVE) {
+            pendingSaveName = null;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                Uri uri = data.getData();
+                String err = "";
+                boolean ok = false;
+                try {
+                    byte[] bytes = readPendingBytes();
+                    if (bytes == null) {
+                        err = "待写入的数据已丢失，请重试";
+                    } else {
+                        OutputStream os = getContentResolver().openOutputStream(uri);
+                        if (os != null) {
+                            os.write(bytes);
+                            os.flush();
+                            os.close();
+                            ok = true;
+                        } else {
+                            err = "无法打开目标文件写入流";
+                        }
+                    }
+                } catch (Exception e) {
+                    err = String.valueOf(e.getMessage());
+                }
+                if (ok) notifyJs("__onSaved", docPath(uri));
+                else notifyJs("__onSaveErr", err);
+            } else {
+                notifyJs("__onSaveCancel", "");
+            }
+            deletePendingFile();
+            return;
+        }
         if (requestCode == REQ_FILE) {
             if (filePathCallback != null) {
                 Uri[] res = null;
@@ -626,6 +782,7 @@ public class MainActivity extends Activity {
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
         if (web != null) web.saveState(outState);
+        if (pendingSaveName != null) outState.putString("pending_save_name", pendingSaveName);
     }
 
     @SuppressWarnings("deprecation")

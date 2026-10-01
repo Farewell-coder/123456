@@ -15,16 +15,80 @@
 /* ============================================================
  * 主题变量（Design Tokens）
  * ------------------------------------------------------------
- * 整个 UI 的配色、阴影、层级遮罩、稀有度、数据来源色都从这里的
- * CSS 变量取值。做视觉调整一律改这里，不要去改散落的硬编码色。
+ * 整个 UI 的配色、阴影、层级、圆角、字号、间距、动效都从这里的
+ * CSS 变量取值。做视觉调整一律改这里，不要去改散落的硬编码值。
  * 分两套：:root = 浅色（跟随系统白天），html[data-theme="dark"] = 深色。
  * 硬约束：样式必须同时维护 light / dark 两套，缺一就会在某主题下花屏。
  * ============================================================ */
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 :root{
-  --bg:#f4f5f9;--card:#fff;--fg:#1c1c28;--dim:#8a8aa0;--line:#e6e7ef;
-  --acc:#6b4ee6;--acc2:#8b6ef7;--ok:#2e9e5b;--bad:#e0564a;--warn:#d9962a;--bar:#fff;
-  --soft:#f2f3f7;--field:#f4f2fd;--shadow:0 2px 10px rgba(20,20,60,.06);
+  /* ---------- 尺寸尺度（scale）----------
+     规则里一律用这些令牌，不要再写裸数值。
+     字号从 21 档收到 9 档：原先 10/10.5/11/11.5 并排出现肉眼分不出，
+     只会让后面维护的人记错；每一档的合并幅度都 ≤2px。 */
+  --fs-xs:11px;      /* 徽章 / 极小注脚 */
+  --fs-sm:12px;      /* 次要说明 */
+  --fs-md:13px;      /* 小正文 */
+  --fs-base:14px;    /* 正文（按钮、列表行） */
+  --fs-lg:15px;      /* 正文强调 */
+  --fs-xl:17px;      /* 卡片主标题 / 弹窗标题 / 步进按钮 */
+  --fs-2xl:22px;     /* 结算评级数字 */
+  --fs-3xl:30px;     /* 大号数字（深渊值、剩余点数、死亡评级） */
+  --fs-4xl:40px;     /* 首页 LOGO / 评级大字 */
+
+  --r-sm:6px;        /* 小标签 / 进度条 */
+  --r-md:9px;        /* 小方块 / 芯片 */
+  --r-lg:12px;       /* 按钮 / 输入框 / 列表行 */
+  --r-xl:16px;       /* 卡片 / 弹窗 */
+  --r-pill:999px;    /* 胶囊 */
+
+  --sp-1:2px; --sp-2:4px; --sp-3:6px; --sp-4:8px; --sp-5:10px;
+  --sp-6:12px; --sp-7:14px; --sp-8:16px; --sp-9:20px; --sp-10:24px;
+  /* 结构性留白（弹窗内边距 / 底部让位 / 空态撑高），不属于节奏型间距，单独列 */
+  --sp-11:28px; --sp-12:32px; --sp-13:40px; --sp-14:44px; --sp-15:52px;
+
+  /* 应用内容宽度。所有整屏浮层（.foot / #dbPage / #aboutPage / #dbgPage / 弹窗）
+     都必须跟 #app 同宽，否则大屏上会出现「内容居中、浮层错位」的割裂感。
+     统一走这个令牌，响应式断点里只改它一处。 */
+  --app-w:560px;
+
+  /* ---------- 动效时长（Motion Durations）----------
+     四档规范，规则里禁止出现 .2s / .35s 这类散写的魔法数字：
+     按压 80–120ms → 微交互 150–200ms → 弹层 220–300ms → 页面转场 280–360ms */
+  --dur-press:.1s;    /* 按压反馈：按下立刻动，不等任何动画 */
+  --dur-micro:.18s;   /* 微交互：开关、勾选、Tab、加减点 */
+  --dur-layer:.26s;   /* 弹层 / 展开 / 列表项入场 */
+  --dur-page:.32s;    /* 页面转场（新旧页重叠衔接） */
+  /* 兼容别名：全文件 70+ 处引用旧名。旧名一律指向新档位 —— 改这里一处，全局生效 */
+  --dur-fast:var(--dur-press);
+  --dur-base:var(--dur-micro);
+  --dur-slow:var(--dur-layer);
+
+  --z-sticky:5;      /* 弹窗内的吸顶条 */
+  --z-status:18;     /* 游玩页常驻信息条 */
+  --z-bar:20;        /* 顶栏 */
+  --z-foot:30;       /* 底部操作条 */
+  --z-drop:60;       /* 下拉面板 */
+  --z-overlay:99;    /* 设置浮层 */
+  --z-page:200;      /* 整屏子页：数据管理 */
+  --z-page2:210;     /* 关于 */
+  --z-page2b:212;    /* Token 消耗统计 */
+  --z-page3:220;     /* 调试 */
+  --z-page4:230;     /* 完整数据库 */
+  --z-modal:300;     /* 普通弹窗 */
+  --z-modal2:310;    /* 输入弹窗 */
+  --z-modal3:330;    /* 调试详情弹窗 */
+  --z-boot:400;      /* 开机页 */
+  --z-toast:500;     /* 吐司 */
+
+  /* 文字/语义色（对比度已按 WCAG AA 校准：正文级 ≥4.5，且在 卡面/页底/软底/输入底
+     四种背景上的最差值都 ≥4.6，留了舍入余量。改色请用 _工具/plan-safe.js 复核） */
+  --bg:#f4f5f9;--card:#fff;--fg:#1c1c28;--dim:#6c6c85;--line:#e6e7ef;
+  --acc:#6b4ee6;--acc2:#8b6ef7;--ok:#247d48;--bad:#cf3123;--warn:#93651a;--bar:#fff;
+  --soft:#f2f3f7;--field:#f4f2fd;
+  /* 卡片立体感：顶部一道极细高光 + 近处贴地阴影 + 远处扩散阴影。
+     比单层 0 2px 10px 更「有厚度」，但模糊半径都收在 20px 内，低端机不会掉帧。 */
+  --shadow:inset 0 1px 0 rgba(255,255,255,.75),0 1px 2px rgba(20,20,60,.05),0 8px 20px -8px rgba(20,20,60,.12);
   --grad:linear-gradient(135deg,var(--acc) 0%,var(--acc2) 100%);
   --grad2:linear-gradient(135deg,var(--acc2) 0%,var(--acc) 100%);
   --bar2:linear-gradient(135deg,#5b3fd6 0%,#7c5cf0 100%);
@@ -35,7 +99,8 @@
   --ovl:rgba(0,0,0,.45);--ovl2:rgba(0,0,0,.50);
   --toastBg:rgba(22,22,32,.92);--toastFg:#fff;
   --topSh:0 6px 12px -8px rgba(0,0,0,.5);--bkSoft:rgba(255,255,255,.18);
-   --rare0:#9aa0ad;--rare1:#4a8ff0;--rare2:#9a5cf0;--rare3:#ef9a24;
+   /* 稀有度徽章：底色上要压白字，按「白字 ≥4.6」校准 */
+   --rare0:#6d7587;--rare1:#1870ec;--rare2:#924eef;--rare3:#a7660c;
    --src0bg:rgba(138,138,160,.16);--src0fg:#7d7d94;
    --src1bg:rgba(74,143,240,.14);--src1fg:#3d7fd6;
    --src2bg:rgba(154,92,240,.16);--src2fg:#8a4fe0;
@@ -44,12 +109,24 @@
    --knobSh:0 1px 4px rgba(0,0,0,.28);
    --cardSh:0 2px 10px rgba(20,20,45,.06);
    --dangerLine:rgba(224,83,61,.28);
+   /* 强调色发光阴影：此前 5 处各写各的模糊半径，统一成两档 */
+   --sh-glow:0 6px 16px var(--accGlow);
+   --sh-glow-lg:0 8px 22px var(--accGlow2);
+   --sh-ring:0 0 0 2px var(--accSoft2);
  }
 /* 深色主题（跟随系统暗色模式，由 App 壳读系统开关后回写 data-theme） */
 html[data-theme="dark"]{
   --bg:#0e1424;--card:#161d31;--fg:#e9ecf5;--dim:#8a93ad;--line:#242e46;
   --acc:#9a80ff;--acc2:#b3a0ff;--ok:#4bd08a;--bad:#ff7062;--warn:#f0b44a;--bar:#121a2c;
-  --soft:#1b2338;--field:#1f2740;--shadow:0 2px 10px rgba(0,0,0,.45);
+  --soft:#1b2338;--field:#1f2740;
+  /* 深色下阴影几乎看不见，靠「顶部微高光 + 更深的扩散影」把卡片从底色里托出来 */
+  --shadow:inset 0 1px 0 rgba(255,255,255,.05),0 1px 2px rgba(0,0,0,.40),0 10px 24px -10px rgba(0,0,0,.55);
+  /* 主按钮专用渐变：深色下 --acc / --acc2 是亮紫（当文字色用正好），
+     但拿来当按钮底就压不住白字了（白字只有 3.04 / 2.24）。
+     所以这里单独覆盖 --grad / --grad2，用同一支品牌紫的深色版本
+     （白字 5.44 / 6.72，白 90% 副文字 4.73 / 5.78，都过 AA）。 */
+  --grad:linear-gradient(135deg,#6b4ee6 0%,#5b3fd6 100%);
+  --grad2:linear-gradient(135deg,#5b3fd6 0%,#6b4ee6 100%);
   --bar2:linear-gradient(135deg,#4a34b8 0%,#6a4bd8 100%);
   --src0bg:rgba(138,147,173,.18);--src0fg:#98a1b8;
   --src1bg:rgba(96,160,255,.18);--src1fg:#7db3ff;
@@ -60,17 +137,18 @@ html[data-theme="dark"]{
   --ovl:rgba(0,0,0,.58);--ovl2:rgba(0,0,0,.62);
   --toastBg:rgba(38,44,64,.95);--toastFg:#fff;
   --topSh:0 6px 12px -8px rgba(0,0,0,.7);--bkSoft:rgba(255,255,255,.14);
-  --rare0:#8b93a5;--rare1:#5b9df5;--rare2:#a772f5;--rare3:#f0a83c;
+  /* 稀有度徽章：底色上要压白字，按「白字 ≥4.6」校准 */
+  --rare0:#6c758b;--rare1:#0f6ff0;--rare2:#904ef2;--rare3:#a4680d;
   /* 收口用暗色覆盖：反白副文字 / 滑块阴影 / 卡面阴影 / 危险描边 */
-  --onAccSoft:rgba(255,255,255,.82);
+  --onAccSoft:rgba(255,255,255,.90);
   --knobSh:0 1px 4px rgba(0,0,0,.5);
   --cardSh:0 2px 10px rgba(0,0,0,.35);
   --dangerLine:rgba(255,112,98,.32);
  }
 html,body{height:100%}
-body{margin:0;background:var(--bg);color:var(--fg);font-size:15px;line-height:1.5;
+body{margin:0;background:var(--bg);color:var(--fg);font-size:var(--fs-lg);line-height:1.5;
   font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
-  overscroll-behavior:none;-webkit-user-select:none;user-select:none;transition:background .25s,color .25s}
+  overscroll-behavior:none;-webkit-user-select:none;user-select:none;transition:background var(--dur-slow),color var(--dur-slow)}
 button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0;text-align:left}
 input,select{font:inherit;outline:none;border:none;background:none;color:inherit}
 input,textarea{-webkit-user-select:auto;user-select:auto}
@@ -78,93 +156,99 @@ input,textarea{-webkit-user-select:auto;user-select:auto}
 /* 高度链必须一路到底（html/body/#app/.screen 全是确定高度），.page 才能真正
    成为唯一的滚动容器。之前用 min-height，容器会随内容长高，滚动落到文档层，
    表现就是「新日志来了视角不跟着往下走」，属性栏也会被文档一起卷走。 */
-#app{max-width:560px;margin:0 auto;height:100%;display:flex;flex-direction:column;overflow:hidden}
+/* position:relative：给「旧页垫底淡出」的 .leaving 提供定位上下文（见 ⑥ 转场段）。
+   它不会成为 position:fixed 后代的包含块 —— fixed 只认 transform/filter 那一类，
+   底部按钮条 .foot 不受影响。 */
+#app{max-width:var(--app-w);margin:0 auto;height:100%;display:flex;flex-direction:column;
+  overflow:hidden;position:relative}
 
 /* ===== 通用 ===== */
 .screen{display:none;flex-direction:column;flex:1;height:100%;min-height:0;overflow:hidden}
 .screen.on{display:flex}
-.page{flex:1;min-height:0;overflow-y:auto;padding:14px 14px calc(112px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}
-.card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
-.chead{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;margin-bottom:12px}
-.chead .dot{width:20px;height:20px;border-radius:6px;flex:none;background:var(--grad2)}
+.page{flex:1;min-height:0;overflow-y:auto;padding:var(--sp-7) var(--sp-7) calc(112px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}
+.card{background:var(--card);border-radius:var(--r-xl);padding:var(--sp-8);margin-bottom:var(--sp-7);box-shadow:var(--shadow)}
+.chead{display:flex;align-items:center;gap:var(--sp-4);font-size:var(--fs-lg);font-weight:600;margin-bottom:var(--sp-6)}
+.chead .dot{width:20px;height:20px;border-radius:var(--r-sm);flex:none;background:var(--grad2)}
 .chead .sp{flex:1}
-.note{color:var(--dim);font-size:12px;line-height:1.6;margin:8px 0 0}
-.hr{height:1px;background:var(--line);margin:12px 0}
-.pill{font-size:11px;padding:3px 9px;border-radius:999px;background:var(--soft);color:var(--dim)}
-.topbar{display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 12px 10px;
-  background:var(--bar);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
-.topbar .tb{width:38px;height:38px;border-radius:11px;background:var(--soft);color:var(--fg);
+.note{color:var(--dim);font-size:var(--fs-sm);line-height:1.6;margin:var(--sp-4) 0 0}
+.hr{height:1px;background:var(--line);margin:var(--sp-6) 0}
+.pill{font-size:var(--fs-xs);padding:var(--sp-1) var(--sp-4);border-radius:var(--r-pill);background:var(--soft);color:var(--dim)}
+.topbar{display:flex;align-items:center;gap:var(--sp-5);padding:calc(10px + env(safe-area-inset-top)) var(--sp-6) var(--sp-5);
+  background:var(--bar);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:var(--z-bar)}
+.topbar .tb{width:38px;height:38px;border-radius:var(--r-md);background:var(--soft);color:var(--fg);
   border:1px solid var(--line);padding:0;display:flex;align-items:center;justify-content:center;flex:none;
-  transition:transform .15s cubic-bezier(.16,1,.3,1),background .18s ease,border-color .18s ease}
+  transition:transform var(--dur-base) cubic-bezier(.16,1,.3,1),background var(--dur-base) ease,border-color var(--dur-base) ease}
 .topbar .tb .ic{width:21px;height:21px;fill:currentColor;display:block}
-.topbar .tt{flex:1;text-align:center;font-size:15px;font-weight:600;line-height:1.2}
-.topbar .tt small{display:block;font-size:11px;font-weight:400;color:var(--dim);margin-top:2px}
+.topbar .tt{flex:1;text-align:center;font-size:var(--fs-lg);font-weight:600;line-height:1.2}
+.topbar .tt small{display:block;font-size:var(--fs-xs);font-weight:400;color:var(--dim);margin-top:var(--sp-1)}
 /* 游玩页常驻信息条：在日志滚动区【之外】，滚日志时属性值永远不动。
    注意：不能用 position:sticky 把它塞在 .page 里 —— 那种写法在本布局下会失效
    （.screen 是 flex、.page 是唯一滚动区），上一版就是这么翻车的。 */
-.playStatus{flex:none;z-index:18;
-  padding:10px 14px 12px;background:var(--bg);border-bottom:1px solid var(--line);
+.playStatus{flex:none;z-index:var(--z-status);
+  padding:var(--sp-5) var(--sp-7) var(--sp-6);background:var(--bg);border-bottom:1px solid var(--line);
   box-shadow:var(--topSh)}
 .playStatus .chips{margin:0}
-.playStatus #plStatus{margin:7px 0 0}
 /* v0.1.3 G：局内属性面板 —— 左七轴雷达图 + 右 4+3 卡片；正/负/零三态染色 */
-.plA{display:flex;align-items:center;gap:12px;margin-top:8px}
+.plA{display:flex;align-items:center;gap:var(--sp-6);margin-top:var(--sp-4)}
 .plRing{flex:none;width:88px;height:88px;display:block}
 .plRing .plG{fill:none;stroke:var(--line);stroke-width:1}
 .plRing .plS{fill:var(--accSoft);stroke:var(--acc);stroke-width:1.6;stroke-linejoin:round}
 .plRing .plD{fill:var(--acc)}
-.plGrid{flex:1;min-width:0;display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.plGrid{flex:1;min-width:0;display:grid;grid-template-columns:repeat(4,1fr);gap:var(--sp-3)}
 .pcard{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
-  padding:6px 2px;border-radius:10px;background:var(--soft);border:1px solid var(--line);
-  transition:transform .14s ease,box-shadow .14s ease,border-color .14s ease}
-.pcard .plk{font-size:10px;line-height:1;color:var(--dim);letter-spacing:.5px}
-.pcard .plv{font-size:13.5px;font-weight:700;line-height:1.15;font-variant-numeric:tabular-nums;
+  padding:var(--sp-3) var(--sp-1);border-radius:var(--r-md);background:var(--soft);border:1px solid var(--line);
+  transition:transform var(--dur-base) ease,box-shadow var(--dur-base) ease,border-color var(--dur-base) ease}
+.pcard .plk{font-size:var(--fs-xs);line-height:1;color:var(--dim);letter-spacing:.5px}
+.pcard .plv{font-size:var(--fs-base);font-weight:700;line-height:1.15;font-variant-numeric:tabular-nums;
   color:var(--fg)}
 .pcard.up .plv{color:var(--ok)}
 .pcard.dn .plv{color:var(--bad)}
 @media(hover:hover){
-  .pcard:hover{transform:scale(1.045);border-color:var(--accLine);box-shadow:0 4px 14px var(--accGlow)}
+  .pcard:hover{transform:scale(1.045);border-color:var(--accLine);box-shadow:var(--sh-glow)}
 }
 .pcard:active{transform:scale(.97)}
 /* v0.1.3 G7：状态行整条隐藏（元素与 refreshStatus 逻辑保留，测试仍可读 textContent） */
 .playStatus #plStatus{display:none!important}
 /* 日志区自己留上内边距，避免首条日志贴住常驻条 */
-#playPage{padding-top:10px}
+#playPage{padding-top:var(--sp-5)}
 /* 死亡就地总结卡：先让人读完再决定要不要进结算页 */
-.deathCard{margin:6px 0 10px;padding:16px;border-radius:16px;background:var(--card);
+.deathCard{margin:var(--sp-3) 0 var(--sp-5);padding:var(--sp-8);border-radius:var(--r-xl);background:var(--card);
   border:1px solid var(--line);box-shadow:var(--shadow);text-align:center;
-  animation:fi .3s ease both}
-.deathCard .dcT{font-size:17px;font-weight:700;margin-bottom:6px}
-.deathCard .dcS{font-size:12.5px;color:var(--dim);line-height:1.7;margin-bottom:12px}
-.deathCard .dcR{font-size:26px;font-weight:800;color:var(--acc);letter-spacing:1px}
-.deathCard .dcD{font-size:12.5px;color:var(--dim);margin-top:4px}
-.deathCard .dcGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:14px}
-.deathCard .dcGrid div{background:var(--soft);border-radius:11px;padding:9px 4px;font-size:12.5px}
-.deathCard .dcGrid b{display:block;font-size:15px;margin-top:3px;font-weight:700}
-.deathCard .dcHint{font-size:12px;color:var(--dim);line-height:1.7;margin-top:14px;
-  padding-top:12px;border-top:1px solid var(--line)}
+  animation:fi var(--dur-page) ease both}
+.deathCard .dcT{font-size:var(--fs-xl);font-weight:700;margin-bottom:var(--sp-3)}
+.deathCard .dcS{font-size:var(--fs-md);color:var(--dim);line-height:1.7;margin-bottom:var(--sp-6)}
+.deathCard .dcR{font-size:var(--fs-3xl);font-weight:800;color:var(--acc);letter-spacing:1px}
+.deathCard .dcD{font-size:var(--fs-md);color:var(--dim);margin-top:var(--sp-2)}
+.deathCard .dcGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3);margin-top:var(--sp-7)}
+.deathCard .dcGrid div{background:var(--soft);border-radius:var(--r-md);padding:var(--sp-4) var(--sp-2);font-size:var(--fs-md)}
+.deathCard .dcGrid b{display:block;font-size:var(--fs-lg);margin-top:var(--sp-1);font-weight:700}
+.deathCard .dcHint{font-size:var(--fs-sm);color:var(--dim);line-height:1.7;margin-top:var(--sp-7);
+  padding-top:var(--sp-6);border-top:1px solid var(--line)}
 /* 死亡后把播放条整条换成「立即总结」条 */
-.endbar{display:flex;gap:8px}
-.endbar .pb{border-radius:13px;padding:12px 0;background:var(--soft);font-size:14px;font-weight:600;
+.endbar{display:flex;gap:var(--sp-4)}
+/* 播放条与结算条共用同一套按钮外观：此前是两份逐字重复的定义，
+   改一处忘一处，现在合成一条。 */
+.endbar .pb,#playbar .pb{border-radius:var(--r-lg);padding:var(--sp-6) 0;background:var(--soft);font-size:var(--fs-base);font-weight:600;
   text-align:center;flex:none;width:66px;border:1px solid var(--line)}
-.endbar .pb.main{flex:1;width:auto;background:var(--grad);color:var(--onAcc);border-color:transparent;
-  box-shadow:0 6px 16px var(--accGlow)}
+.endbar .pb.main,#playbar .pb.main{flex:1;width:auto;background:var(--grad);color:var(--onAcc);border-color:transparent;
+  box-shadow:var(--sh-glow)}
+#playbar .pb.on{background:var(--accSoft2);color:var(--acc)}
 #playbar.hide,#endbar.hide{display:none!important}
-.btn{border-radius:12px;padding:13px;font-size:15px;font-weight:600;background:var(--card);
+.btn{border-radius:var(--r-lg);padding:var(--sp-6);font-size:var(--fs-lg);font-weight:600;background:var(--card);
   border:1px solid var(--line);text-align:center}
 .btn.pri{background:var(--grad);color:var(--onAcc);border:none;
-  box-shadow:0 8px 18px var(--accGlow)}
+  box-shadow:var(--sh-glow)}
 .btn.gray{background:var(--soft);border:none}
 .btn:disabled{opacity:.4}
-.row{display:flex;gap:10px}
+.row{display:flex;gap:var(--sp-5)}
 .row>*{flex:1}
-.foot{position:fixed;left:0;right:0;bottom:0;max-width:560px;margin:0 auto;z-index:30;
-  padding:10px 14px calc(10px + env(safe-area-inset-bottom));background:var(--bar);
+.foot{position:fixed;left:0;right:0;bottom:0;max-width:var(--app-w);margin:0 auto;z-index:var(--z-foot);
+  padding:var(--sp-5) var(--sp-7) calc(10px + env(safe-area-inset-bottom));background:var(--bar);
   border-top:1px solid var(--line)}
 
 /* ===== 主界面 ===== */
-#scMenu{justify-content:center;padding:0 26px calc(30px + env(safe-area-inset-bottom))}
-.logo{font-size:42px;font-weight:800;letter-spacing:6px;text-align:center}
+#scMenu{justify-content:center;padding:0 var(--sp-10) calc(30px + env(safe-area-inset-bottom))}
+.logo{font-size:var(--fs-4xl);font-weight:800;letter-spacing:6px;text-align:center}
 /* 主标题拆成左上 / 右下两段，做出斜对角错落。
    渐变紫不能留在 .logo 上：background-clip:text 只作用于自身文字，
    子元素继承不到背景，会只剩 color:transparent 而整段消失。故每个词各配一份渐变。 */
@@ -173,121 +257,116 @@ input,textarea{-webkit-user-select:auto;user-select:auto}
 .logo .lg1{margin:0 auto 0 0;text-align:left}
 /* 右对齐；负 margin 抵消 letter-spacing 在末字后留下的 6px 空隙，视觉上才真正贴右边 */
 .logo .lg2{margin:0 -6px 0 auto;text-align:right}
-.logo .sub{display:block;font-size:12px;font-weight:500;letter-spacing:2.5px;color:var(--dim);
-  -webkit-text-fill-color:var(--dim);margin-top:12px}
-.menu-list{display:flex;flex-direction:column;gap:12px;margin-top:42px}
-.mbtn{padding:16px;border-radius:14px;background:var(--card);border:1px solid var(--line);
-  box-shadow:var(--shadow);font-size:16px;font-weight:600;text-align:center;
-  transition:transform .16s cubic-bezier(.16,1,.3,1),box-shadow .2s ease,border-color .2s ease}
+.logo .sub{display:block;font-size:var(--fs-sm);font-weight:500;letter-spacing:2.5px;color:var(--dim);
+  -webkit-text-fill-color:var(--dim);margin-top:var(--sp-6)}
+.menu-list{display:flex;flex-direction:column;gap:var(--sp-6);margin-top:var(--sp-13)}
+.mbtn{padding:var(--sp-8);border-radius:var(--r-xl);background:var(--card);border:1px solid var(--line);
+  box-shadow:var(--shadow);font-size:var(--fs-xl);font-weight:600;text-align:center;
+  transition:transform var(--dur-base) cubic-bezier(.16,1,.3,1),box-shadow var(--dur-base) ease,border-color var(--dur-base) ease}
 .mbtn.pri{background:var(--grad);color:var(--onAcc);border-color:transparent;
-  box-shadow:0 8px 22px var(--accGlow2)}
-.mbtn .tip{display:block;font-size:12px;font-weight:400;color:var(--dim);margin-top:5px}
+  box-shadow:var(--sh-glow-lg)}
+.mbtn .tip{display:block;font-size:var(--fs-sm);font-weight:400;color:var(--dim);margin-top:var(--sp-2)}
 .mbtn.pri .tip{color:var(--onAccSoft)}
 .mbtn:disabled{opacity:.45}
 
 /* ===== 天赋卡 ===== */
-.tal{border-radius:14px;padding:13px 14px;background:var(--card);border:1px solid var(--line);
-  margin-bottom:10px;position:relative}
-.tal.sel{border-color:var(--acc);box-shadow:0 0 0 2px var(--accSoft2)}
-.tal .nm{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700}
-.tal .ds{font-size:12.5px;color:var(--dim);line-height:1.55;margin-top:6px}
-.rare{font-size:10px;padding:2px 8px;border-radius:999px;font-weight:700;color:var(--onAcc);flex:none}
+.tal{border-radius:var(--r-xl);padding:var(--sp-6) var(--sp-7);background:var(--card);border:1px solid var(--line);
+  margin-bottom:var(--sp-5);position:relative}
+.tal.sel{border-color:var(--acc);box-shadow:var(--sh-ring)}
+.tal .nm{display:flex;align-items:center;gap:var(--sp-4);font-size:var(--fs-lg);font-weight:700}
+.tal .ds{font-size:var(--fs-md);color:var(--dim);line-height:1.55;margin-top:var(--sp-3)}
+.rare{font-size:var(--fs-xs);padding:var(--sp-1) var(--sp-4);border-radius:var(--r-pill);font-weight:700;color:var(--onAcc);flex:none}
 .r0{background:var(--rare0)}.r1{background:var(--rare1)}.r2{background:var(--rare2)}.r3{background:var(--rare3)}
 
 /* ===== 天赋卡选择页 ===== */
 #talWrap{max-height:none}
-#talBar .remain{font-size:13px;color:var(--dim);text-align:center;margin-bottom:8px}
+#talBar .remain{font-size:var(--fs-md);color:var(--dim);text-align:center;margin-bottom:var(--sp-4)}
 
 /* ===== 属性分配 ===== */
-.diffrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
-.diff{flex:1 1 42%;border-radius:12px;padding:10px;background:var(--soft);border:1px solid transparent;
+.diffrow{display:flex;gap:var(--sp-4);flex-wrap:wrap;margin-top:var(--sp-2)}
+.diff{flex:1 1 42%;border-radius:var(--r-lg);padding:var(--sp-5);background:var(--soft);border:1px solid transparent;
   text-align:center}
 .diff.on{border-color:var(--acc);background:var(--accSoft)}
-.diff b{display:block;font-size:14px}
-.diff small{font-size:11px;color:var(--dim)}
+.diff b{display:block;font-size:var(--fs-base)}
+.diff small{font-size:var(--fs-xs);color:var(--dim)}
 .diff.lock{opacity:.45}
-.pool{display:flex;align-items:baseline;justify-content:center;gap:8px;padding:6px 0 12px}
-.pool b{font-size:34px;font-weight:800;color:var(--acc);font-variant-numeric:tabular-nums}
-.pool span{font-size:13px;color:var(--dim);display:flex;flex-direction:column;line-height:1.35}
-.life{margin:-6px 0 10px;text-align:center;font-size:12.5px;color:var(--dim)}
+.pool{display:flex;align-items:baseline;justify-content:center;gap:var(--sp-4);padding:var(--sp-3) 0 var(--sp-6)}
+.pool b{font-size:var(--fs-3xl);font-weight:800;color:var(--acc);font-variant-numeric:tabular-nums}
+.pool span{font-size:var(--fs-md);color:var(--dim);display:flex;flex-direction:column;line-height:1.35}
+.life{margin:-6px 0 var(--sp-5);text-align:center;font-size:var(--fs-md);color:var(--dim)}
 .life b{color:var(--acc);font-weight:800;font-variant-numeric:tabular-nums}
-.arow{display:flex;align-items:center;gap:7px;padding:9px 0;border-bottom:1px solid var(--line)}
+.arow{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-4) 0;border-bottom:1px solid var(--line)}
 .arow:last-child{border-bottom:none}
-.arow .an{width:64px;font-size:13.5px;font-weight:600;flex:none}
-.arow .av{width:62px;font-size:12px;text-align:center;flex:none;font-variant-numeric:tabular-nums;color:var(--dim)}
-.arow .av b{font-size:16px;color:var(--fg)}
-.arow .ac{width:30px;font-size:11px;color:var(--acc);text-align:center;flex:none}
-.abar{flex:1;height:7px;border-radius:4px;background:var(--soft);overflow:hidden;min-width:18px}
-.abar i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--acc2),var(--acc));transition:width .18s}
-.astep{width:36px;height:36px;border-radius:10px;background:var(--soft);font-size:19px;font-weight:600;
+.arow .an{width:64px;font-size:var(--fs-base);font-weight:600;flex:none}
+.arow .av{width:62px;font-size:var(--fs-sm);text-align:center;flex:none;font-variant-numeric:tabular-nums;color:var(--dim)}
+.arow .av b{font-size:var(--fs-xl);color:var(--fg)}
+.arow .ac{width:30px;font-size:var(--fs-xs);color:var(--acc);text-align:center;flex:none}
+.abar{flex:1;height:7px;border-radius:var(--r-sm);background:var(--soft);overflow:hidden;min-width:18px}
+.abar i{display:block;height:100%;border-radius:var(--r-sm);background:linear-gradient(90deg,var(--acc2),var(--acc));transition:width var(--dur-base)}
+.astep{width:36px;height:36px;border-radius:var(--r-md);background:var(--soft);font-size:var(--fs-xl);font-weight:600;
   display:flex;align-items:center;justify-content:center;flex:none;
-  transition:background .15s ease,transform .12s ease,opacity .15s ease}
+  transition:background var(--dur-base) ease,transform .12s ease,opacity var(--dur-base) ease}
 .astep:active{background:var(--accSoft2)}
 .astep.off{opacity:.35}
-.astep.minus{background:transparent;border:1px solid var(--line);color:var(--dim);font-size:17px}
+.astep.minus{background:transparent;border:1px solid var(--line);color:var(--dim);font-size:var(--fs-xl)}
 .astep.minus:active{color:var(--acc);border-color:var(--acc)}
 .ghostdis{opacity:.42}
-.pass{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-.pchip{font-size:11px;padding:4px 9px;border-radius:999px;background:var(--accSoft);
+.pass{display:flex;flex-wrap:wrap;gap:var(--sp-3);margin-top:var(--sp-5)}
+.pchip{font-size:var(--fs-xs);padding:var(--sp-2) var(--sp-4);border-radius:var(--r-pill);background:var(--accSoft);
   color:var(--acc);border:1px solid var(--accLine)}
 .pchip.off{background:var(--soft);color:var(--dim);border-color:var(--line)}
 
 /* ===== 推演页 ===== */
 #log{list-style:none;margin:0;padding:0}
 /* 日志流：一年里的事也一条一条平铺出现，不按年折叠（年份卡已废弃） */
-.li{padding:10px 12px;border-radius:13px;background:var(--card);margin-bottom:8px;font-size:14px;
-  line-height:1.62;box-shadow:var(--shadow);animation:fi .26s ease both;word-break:break-word}
+.li{padding:var(--sp-5) var(--sp-6);border-radius:var(--r-lg);background:var(--card);margin-bottom:var(--sp-4);font-size:var(--fs-base);
+  line-height:1.62;box-shadow:var(--shadow);animation:fi var(--dur-slow) ease both;word-break:break-word}
 @keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-.li .y{color:var(--acc);font-weight:700;margin-right:6px;font-variant-numeric:tabular-nums}
-.li .d{font-size:11.5px;color:var(--dim);margin-left:6px;white-space:nowrap}
+.li .y{color:var(--acc);font-weight:700;margin-right:var(--sp-3);font-variant-numeric:tabular-nums}
+.li .d{font-size:var(--fs-sm);color:var(--dim);margin-left:var(--sp-3);white-space:nowrap}
 .li.good{border-left:3px solid var(--ok)}
 .li.bad{border-left:3px solid var(--bad)}
-.li.sys{background:transparent;box-shadow:none;text-align:center;color:var(--dim);font-size:12px;padding:4px}
-#playbar{display:flex;gap:8px}
-#playbar .pb{border-radius:13px;padding:12px 0;background:var(--soft);font-size:14px;font-weight:600;
-  text-align:center;flex:none;width:66px;border:1px solid var(--line)}
-#playbar .pb.main{flex:1;width:auto;background:var(--grad);color:var(--onAcc);border-color:transparent;
-  box-shadow:0 6px 16px var(--accGlow)}
-#playbar .pb.on{background:var(--accSoft2);color:var(--acc)}
-.chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip{font-size:11px;padding:3px 9px;border-radius:999px;background:var(--soft);color:var(--dim);
+.li.sys{background:transparent;box-shadow:none;text-align:center;color:var(--dim);font-size:var(--fs-sm);padding:var(--sp-2)}
+#playbar{display:flex;gap:var(--sp-4)}
+.chips{display:flex;flex-wrap:wrap;gap:var(--sp-3)}
+.chip{font-size:var(--fs-xs);padding:var(--sp-1) var(--sp-4);border-radius:var(--r-pill);background:var(--soft);color:var(--dim);
   border:1px solid var(--line)}
 
 /* ===== 结局 ===== */
-.rank{text-align:center;font-size:40px;font-weight:800;letter-spacing:4px;
+.rank{text-align:center;font-size:var(--fs-4xl);font-weight:800;letter-spacing:4px;
   background:var(--grad2);-webkit-background-clip:text;
   background-clip:text;color:transparent}
-.epitaph{font-size:13.5px;line-height:1.85;color:var(--fg);white-space:pre-wrap;word-break:break-word}
+.epitaph{font-size:var(--fs-base);line-height:1.85;color:var(--fg);white-space:pre-wrap;word-break:break-word}
 /* 结算页属性面板：分组 + 条形 + 涨跌染色 */
-.ovg{font-size:12px;color:var(--dim);margin:10px 0 6px;letter-spacing:1px}
+.ovg{font-size:var(--fs-sm);color:var(--dim);margin:var(--sp-5) 0 var(--sp-3);letter-spacing:1px}
 .ovg:first-child{margin-top:0}
-.ovrow{display:flex;align-items:center;gap:8px;padding:5px 0}
-.ovrow .on1{width:6.2em;font-size:13px;color:var(--dim);flex:none}
-.ovrow .obar{flex:1;height:6px;border-radius:999px;background:var(--soft);overflow:hidden}
-.ovrow .obar i{display:block;height:100%;border-radius:999px;background:var(--acc);opacity:.65}
+.ovrow{display:flex;align-items:center;gap:var(--sp-4);padding:var(--sp-2) 0}
+.ovrow .on1{width:6.2em;font-size:var(--fs-md);color:var(--dim);flex:none}
+.ovrow .obar{flex:1;height:6px;border-radius:var(--r-pill);background:var(--soft);overflow:hidden}
+.ovrow .obar i{display:block;height:100%;border-radius:var(--r-pill);background:var(--acc);opacity:.65}
 .ovrow .ov{width:3.2em;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;flex:none}
-.ovrow .od{width:3.4em;text-align:right;font-size:11.5px;flex:none}
+.ovrow .od{width:3.4em;text-align:right;font-size:var(--fs-sm);flex:none}
 .ovrow .od.up{color:var(--ok)}
 .ovrow .od.dn{color:var(--bad)}
 /* 深渊值卡片 */
-.abyss .abN{text-align:center;font-size:30px;font-weight:800;color:var(--acc);letter-spacing:1px}
-.abyss .abT{text-align:center;font-size:12.5px;color:var(--dim);margin-top:6px;line-height:1.8}
-.abyss .abRow{display:flex;justify-content:space-between;font-size:12.5px;
-  padding:6px 0;border-top:1px solid var(--line);margin-top:10px;color:var(--dim)}
+.abyss .abN{text-align:center;font-size:var(--fs-3xl);font-weight:800;color:var(--acc);letter-spacing:1px}
+.abyss .abT{text-align:center;font-size:var(--fs-md);color:var(--dim);margin-top:var(--sp-3);line-height:1.8}
+.abyss .abRow{display:flex;justify-content:space-between;font-size:var(--fs-md);
+  padding:var(--sp-3) 0;border-top:1px solid var(--line);margin-top:var(--sp-5);color:var(--dim)}
 .abyss .abRow b{color:var(--fg)}
 /* 这一年几件事：按阶段铺「年数 · 件数 · 年均」—— 需求 10「一年一组事」的结算视图 */
-.yrgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
-.yrgrid .yrcell{background:var(--soft);border-radius:11px;padding:8px 6px;font-size:12px;
-  display:flex;flex-direction:column;gap:2px;align-items:center}
-.yrgrid .yrcell span{color:var(--dim);font-size:11.5px}
-.yrgrid .yrcell b{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
-.yrgrid .yrcell i{font-size:10.5px;color:var(--dim);font-style:normal;white-space:nowrap}
-.stat{display:flex;justify-content:space-between;font-size:13.5px;padding:7px 0;border-bottom:1px solid var(--line)}
+.yrgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3)}
+.yrgrid .yrcell{background:var(--soft);border-radius:var(--r-md);padding:var(--sp-4) var(--sp-3);font-size:var(--fs-sm);
+  display:flex;flex-direction:column;gap:var(--sp-1);align-items:center}
+.yrgrid .yrcell span{color:var(--dim);font-size:var(--fs-sm)}
+.yrgrid .yrcell b{font-size:var(--fs-lg);font-weight:700;font-variant-numeric:tabular-nums}
+.yrgrid .yrcell i{font-size:var(--fs-xs);color:var(--dim);font-style:normal;white-space:nowrap}
+.stat{display:flex;justify-content:space-between;font-size:var(--fs-base);padding:var(--sp-3) 0;border-bottom:1px solid var(--line)}
 .stat:last-child{border-bottom:none}
 .stat span:last-child{font-weight:700;font-variant-numeric:tabular-nums}
 
 /* ===== 图鉴 ===== */
-.dexitem{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.dexitem{display:flex;align-items:center;gap:var(--sp-5);padding:var(--sp-4) 0;border-bottom:1px solid var(--line);font-size:var(--fs-base)}
 .dexitem:last-child{border-bottom:none}
 .dexitem .no{flex:1;color:var(--dim)}
 /* 成就行的左侧状态圆点（替代原来的「已达成 / 未达成」文字，更清爽） */
@@ -295,49 +374,51 @@ input,textarea{-webkit-user-select:auto;user-select:auto}
 .dexitem .achdot.on{background:var(--ok)}
 
 /* ===== 设置弹窗（照参考图） ===== */
-#modal{position:fixed;inset:0;background:var(--ovl);display:none;z-index:99}
+#modal{position:fixed;inset:0;background:var(--ovl);display:none;z-index:var(--z-overlay)}
 #modal.on{display:flex}
-#modal .box{background:var(--bg);width:100%;max-width:560px;margin:0 auto;max-height:100vh;
-  overflow-y:auto;display:flex;flex-direction:column;-webkit-overflow-scrolling:touch}
+#modal .box{background:var(--bg);width:100%;max-width:var(--app-w);margin:0 auto;max-height:100vh;
+  max-height:100dvh;   /* 地址栏/手势条伸缩时用动态视口，避免面板高度跳动（老内核忽略此行即可） */
+  overflow-y:auto;display:flex;flex-direction:column;-webkit-overflow-scrolling:touch;
+  touch-action:pan-y pinch-zoom}
 #modal .bar{background:var(--bar2);color:var(--onAcc);
-  padding:calc(14px + env(safe-area-inset-top)) 14px 16px;display:flex;align-items:center;gap:10px;flex:none;
-  position:sticky;top:0;z-index:5}
+  padding:calc(14px + env(safe-area-inset-top)) var(--sp-7) var(--sp-8);display:flex;align-items:center;gap:var(--sp-5);flex:none;
+  position:sticky;top:0;z-index:var(--z-sticky)}
 #modal .bar .bk{width:34px;height:34px;border-radius:50%;background:var(--bkSoft);color:var(--onAcc);
   display:flex;align-items:center;justify-content:center;flex:none}
 #modal .bar .bk .ic{width:19px;height:19px;fill:currentColor;display:block}
-#modal .bar h2{font-size:17px;font-weight:600;margin:0}
-#modal .body{padding:14px 14px calc(28px + env(safe-area-inset-bottom))}
-#modal .card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
-#modal .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-#modal .new{font-size:13px;color:var(--acc);border:1px solid var(--accLine);border-radius:999px;
-  padding:6px 14px;background:var(--card)}
-#modal .fm{margin-bottom:16px}
+#modal .bar h2{font-size:var(--fs-xl);font-weight:600;margin:0}
+#modal .body{padding:var(--sp-7) var(--sp-7) calc(28px + env(safe-area-inset-bottom))}
+#modal .card{background:var(--card);border-radius:var(--r-xl);padding:var(--sp-8);margin-bottom:var(--sp-7);box-shadow:var(--shadow)}
+#modal .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-6)}
+#modal .new{font-size:var(--fs-md);color:var(--acc);border:1px solid var(--accLine);border-radius:var(--r-pill);
+  padding:var(--sp-3) var(--sp-7);background:var(--card)}
+#modal .fm{margin-bottom:var(--sp-8)}
 #modal .fm:last-child{margin-bottom:0}
-#modal .lb2{font-size:14px;font-weight:600}
-#modal .hint{font-size:12px;color:var(--dim);margin-top:4px;line-height:1.45}
+#modal .lb2{font-size:var(--fs-base);font-weight:600}
+#modal .hint{font-size:var(--fs-sm);color:var(--dim);margin-top:var(--sp-2);line-height:1.45}
 #modal input[type=text],#modal input[type=password],#modal input[type=number],#modal select{
-  width:100%;background:var(--field);border-radius:12px;padding:13px 14px;color:var(--acc);
-  font-size:14px;margin-top:9px;padding-right:44px}
-#modal select{color:var(--acc);appearance:none;-webkit-appearance:none;padding-right:14px}
-#modal input[type=range]{width:100%;margin-top:10px;accent-color:var(--acc)}
+  width:100%;background:var(--field);border-radius:var(--r-lg);padding:var(--sp-6) var(--sp-7);color:var(--acc);
+  font-size:var(--fs-base);margin-top:var(--sp-4);padding-right:var(--sp-14)}
+#modal select{color:var(--acc);appearance:none;-webkit-appearance:none;padding-right:var(--sp-7)}
+#modal input[type=range]{width:100%;margin-top:var(--sp-5);accent-color:var(--acc)}
 #modal input::placeholder{color:var(--dim)}
 #modal .mrow{position:relative;display:flex;align-items:center}
 #modal .mrow input{flex:1;min-width:0}
 #modal .mrow .ic{position:absolute;right:10px;top:50%;transform:translateY(-50%);width:30px;height:30px;
-  border-radius:9px;background:var(--accIcon);color:var(--acc);font-size:15px;
+  border-radius:var(--r-md);background:var(--accIcon);color:var(--acc);font-size:var(--fs-lg);
   display:flex;align-items:center;justify-content:center}
-#modal .sw{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;
+#modal .sw{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-6);padding:var(--sp-5) 0;
   border-bottom:1px solid var(--line)}
 #modal .sw:last-child{border-bottom:none}
-#modal .sw .st{font-size:14px;font-weight:600}
-#modal .sw .sd{font-size:12px;color:var(--dim);margin-top:2px}
+#modal .sw .st{font-size:var(--fs-base);font-weight:600}
+#modal .sw .sd{font-size:var(--fs-sm);color:var(--dim);margin-top:var(--sp-1)}
 #modal .sw input[type=checkbox]{width:24px;height:24px;accent-color:var(--acc);flex:none}
-#modal .seg{display:flex;gap:8px;margin-top:10px}
-#modal .seg button{flex:1;border-radius:12px;padding:12px;font-size:13.5px;background:var(--soft);
+#modal .seg{display:flex;gap:var(--sp-4);margin-top:var(--sp-5)}
+#modal .seg button{flex:1;border-radius:var(--r-lg);padding:var(--sp-6);font-size:var(--fs-base);background:var(--soft);
   border:1px solid transparent;text-align:center}
 #modal .seg button.on{border-color:var(--acc);background:var(--accSoft);color:var(--acc);font-weight:600}
-#modal .acts{display:flex;gap:10px}
-#modal .acts button{flex:1;border-radius:12px;padding:14px;font-size:15px;font-weight:600;
+#modal .acts{display:flex;gap:var(--sp-5)}
+#modal .acts button{flex:1;border-radius:var(--r-lg);padding:var(--sp-7);font-size:var(--fs-lg);font-weight:600;
   background:var(--grad);color:var(--onAcc);text-align:center}
 #modal .acts button.ghost{background:var(--soft);color:var(--fg)}
 
@@ -349,176 +430,197 @@ input,textarea{-webkit-user-select:auto;user-select:auto}
    注：#dlg 原为 150，比上面三个页面层都低 —— 在数据管理/关于/调试页里弹确认框会被整页盖住，
    看起来就是「点了没反应」。dialog() 共 14 个调用点，前 6 个就在 #dbPage 内。 */
 #dlg{position:fixed;inset:0;background:var(--ovl2);display:none;align-items:center;justify-content:center;
-  z-index:300;padding:28px}
+  z-index:var(--z-modal);padding:var(--sp-11)}
 #dlg.on{display:flex}
-#dlg .dc{background:var(--card);border-radius:18px;padding:22px;width:100%;max-width:340px}
+#dlg .dc{background:var(--card);border-radius:var(--r-xl);padding:var(--sp-9);width:100%;max-width:340px}
 @keyframes pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}
-#dlg h3{margin:0 0 8px;font-size:16.5px}
-#dlg p{margin:0;font-size:13px;color:var(--dim);line-height:1.65}
-#dlg .da{display:flex;flex-direction:column;gap:8px;margin-top:18px}
-#dlg .da button{border-radius:12px;padding:13px;font-size:15px;font-weight:600;text-align:center;
+#dlg h3{margin:0 0 var(--sp-4);font-size:var(--fs-xl)}
+#dlg p{margin:0;font-size:var(--fs-md);color:var(--dim);line-height:1.65}
+#dlg .da{display:flex;flex-direction:column;gap:var(--sp-4);margin-top:var(--sp-8)}
+#dlg .da button{border-radius:var(--r-lg);padding:var(--sp-6);font-size:var(--fs-lg);font-weight:600;text-align:center;
   background:var(--soft)}
 #dlg .da .a1{background:var(--grad);color:var(--onAcc)}
 #dlg .da .a3{background:transparent;color:var(--dim);font-weight:400}
 /* ===== 自定义输入弹窗（替代原生 prompt，跟随主题） ===== */
 #dlgI{position:fixed;inset:0;background:var(--ovl2);display:flex;align-items:center;justify-content:center;
-  z-index:310;padding:28px}
+  z-index:var(--z-modal2);padding:var(--sp-11)}
 #dlgI.hide{display:none!important}
-#dlgI .dc{background:var(--card);border-radius:18px;padding:22px;width:100%;max-width:340px;
-  animation:pop .18s ease both}
-#dlgI h3{margin:0 0 6px;font-size:16.5px;font-weight:600}
-#dlgI .sub{font-size:12px;color:var(--dim);line-height:1.5;margin-bottom:2px}
-#dlgI input{width:100%;box-sizing:border-box;background:var(--field);border-radius:12px;
-  padding:13px 14px;color:var(--acc);font-size:14px;margin-top:10px}
+#dlgI .dc{background:var(--card);border-radius:var(--r-xl);padding:var(--sp-9);width:100%;max-width:340px;
+  animation:pop var(--dur-base) ease both}
+#dlgI h3{margin:0 0 var(--sp-3);font-size:var(--fs-xl);font-weight:600}
+#dlgI .sub{font-size:var(--fs-sm);color:var(--dim);line-height:1.5;margin-bottom:var(--sp-1)}
+#dlgI input{width:100%;box-sizing:border-box;background:var(--field);border-radius:var(--r-lg);
+  padding:var(--sp-6) var(--sp-7);color:var(--acc);font-size:var(--fs-base);margin-top:var(--sp-5)}
 #dlgI input::placeholder{color:var(--dim)}
-#dlgI .da{display:flex;flex-direction:column;gap:8px;margin-top:18px}
-#dlgI .da button{border-radius:12px;padding:13px;font-size:15px;font-weight:600;
+#dlgI .da{display:flex;flex-direction:column;gap:var(--sp-4);margin-top:var(--sp-8)}
+#dlgI .da button{border-radius:var(--r-lg);padding:var(--sp-6);font-size:var(--fs-lg);font-weight:600;
   text-align:center;background:var(--soft)}
 #dlgI .da .a1{background:var(--grad);color:var(--onAcc)}
 #dlgI .da .a3{background:transparent;color:var(--dim);font-weight:400}
 
+/* ===== 文本体检进度框（查重 + 同步偏向一步跑完，带进度条） ===== */
+#tkProg{position:fixed;inset:0;background:var(--ovl2);display:none;align-items:center;justify-content:center;
+  z-index:var(--z-modal3);padding:var(--sp-11)}
+#tkProg.on{display:flex}
+#tkProg .dc{background:var(--card);border-radius:var(--r-xl);padding:var(--sp-9);width:100%;max-width:340px;
+  animation:pop var(--dur-base) ease both}
+#tkProg h3{margin:0 0 var(--sp-3);font-size:var(--fs-xl);font-weight:600}
+#tkProg p{margin:0;font-size:var(--fs-md);color:var(--dim);line-height:1.65;white-space:pre-wrap;word-break:break-word}
+.tkpbar{width:100%;height:8px;border-radius:var(--r-pill);background:var(--soft);overflow:hidden;margin-top:var(--sp-7)}
+.tkpbar i{display:block;height:100%;width:0;border-radius:var(--r-pill);background:var(--grad);transition:width var(--dur-slow) ease}
+.tkpmeta{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-5);margin-top:var(--sp-4);
+  font-size:var(--fs-sm);color:var(--dim);font-variant-numeric:tabular-nums}
+#tkProg .da{display:flex;flex-direction:column;gap:var(--sp-4);margin-top:var(--sp-8)}
+#tkProg .da button{border-radius:var(--r-lg);padding:var(--sp-6);font-size:var(--fs-lg);font-weight:600;text-align:center;
+  background:var(--soft);color:var(--fg)}
+#tkProg .da .a1{background:var(--grad);color:var(--onAcc)}
+#tkProg .da .a3{background:transparent;color:var(--dim);font-weight:400}
+
 /* ===== 抉择条目：直接长在日志流里，外观与普通日志行一致（不再弹浮层） ===== */
 .li.choiceLi{background:var(--field);border-left:3px solid var(--acc)}
-.li.choiceLi .co{display:flex;flex-direction:column;gap:8px;margin-top:10px}
-.li.choiceLi .co button{border-radius:12px;padding:11px 13px;background:var(--card);text-align:left;
-  border:1px solid var(--line);font-size:14px;box-shadow:var(--shadow);
-  transition:background .18s ease,border-color .18s ease}
+.li.choiceLi .co{display:flex;flex-direction:column;gap:var(--sp-4);margin-top:var(--sp-5)}
+.li.choiceLi .co button{border-radius:var(--r-lg);padding:var(--sp-5) var(--sp-6);background:var(--card);text-align:left;
+  border:1px solid var(--line);font-size:var(--fs-base);box-shadow:var(--shadow);
+  transition:background var(--dur-base) ease,border-color var(--dur-base) ease}
 .li.choiceLi .co button:active{background:var(--soft);border-color:var(--acc)}
 .li.choiceLi .co button:disabled{opacity:.45}
-.li.choiceLi .co .on1{font-size:14px;font-weight:600}
-.li.choiceLi .co .on2{font-size:11.5px;color:var(--dim);margin-top:3px}
-.li.choiceLi .co .judge{float:right;font-size:11px;color:var(--acc)}
+.li.choiceLi .co .on1{font-size:var(--fs-base);font-weight:600}
+.li.choiceLi .co .on2{font-size:var(--fs-sm);color:var(--dim);margin-top:var(--sp-1)}
+.li.choiceLi .co .judge{float:right;font-size:var(--fs-xs);color:var(--acc)}
 /* 「关于」独立卡：整条可点、右侧箭头，不参与折叠 */
 #modal .card.aboutcard{cursor:pointer}
 #modal .card.aboutcard .chead .arw{font-weight:700}
 /* 关于页：作者 / 反馈群 / 版本 同框三行 */
 .abrows{display:flex;flex-direction:column}
-.abrow{display:flex;align-items:center;justify-content:space-between;gap:12px;
-  padding:10px 2px;border-bottom:1px solid var(--line);font-size:13px}
+.abrow{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-6);
+  padding:var(--sp-5) var(--sp-1);border-bottom:1px solid var(--line);font-size:var(--fs-md)}
 .abrow:last-child{border-bottom:none}
 .abk{color:var(--dim)}
 .abv{color:var(--fg);font-weight:600}
 /* 反馈群号：做成可点的浅色胶囊，暗示「能点」；点一下复制 */
-.abqq{display:inline-block;padding:2px 10px;border-radius:99px;
+.abqq{display:inline-block;padding:var(--sp-1) var(--sp-5);border-radius:var(--r-pill);
   background:var(--accSoft);color:var(--acc);border:1px solid var(--accLine);
   font-weight:700;font-variant-numeric:tabular-nums;cursor:pointer;
-  transition:background .15s,transform .1s}
+  transition:background var(--dur-base),transform var(--dur-fast)}
 .abqq:active{background:var(--accSoft2);transform:scale(.96)}
 /* 抉择倒计时：就地长在选项框底部的一条细进度 + 秒数，安静不抢戏 */
-.li.choiceLi .co .cdbox{display:flex;align-items:center;gap:8px;margin-top:4px;
-  font-size:11px;color:var(--dim)}
-.li.choiceLi .co .cdbox i{flex:1;height:3px;border-radius:99px;background:var(--accSoft2);
-  display:block;transition:width .1s linear}
+.li.choiceLi .co .cdbox{display:flex;align-items:center;gap:var(--sp-4);margin-top:var(--sp-2);
+  font-size:var(--fs-xs);color:var(--dim)}
+.li.choiceLi .co .cdbox i{flex:1;height:3px;border-radius:var(--r-pill);background:var(--accSoft2);
+  display:block;transition:width var(--dur-fast) linear}
 .li.choiceLi .co .cdbox .cdtx{flex:none;font-weight:600;font-variant-numeric:tabular-nums;
   min-width:2.2em;text-align:right;opacity:.8}
 
 /* 抉择结果：就地在原框内显示（不摘框、不甩进日志流），与上面按钮同宽同调 */
-.li.choiceLi .co .resT{font-size:12.5px;font-weight:600;color:var(--acc);margin-top:12px;
-  padding-top:10px;border-top:1px solid var(--line)}
-.li.choiceLi .co .resB{font-size:13.5px;line-height:1.7;color:var(--fg);margin-top:6px}
+.li.choiceLi .co .resT{font-size:var(--fs-md);font-weight:600;color:var(--acc);margin-top:var(--sp-6);
+  padding-top:var(--sp-5);border-top:1px solid var(--line)}
+.li.choiceLi .co .resB{font-size:var(--fs-base);line-height:1.7;color:var(--fg);margin-top:var(--sp-3)}
 .li.choiceLi .co .resB.bad{color:var(--bad)}
-.li.choiceLi .co .resD{font-size:11.5px;line-height:1.6;color:var(--dim);margin-top:6px}
+.li.choiceLi .co .resD{font-size:var(--fs-sm);line-height:1.6;color:var(--dim);margin-top:var(--sp-3)}
 /* 已选定：整条淡化，明确「这一步已经过去」，避免看起来还能再点 */
 .li.choiceLi.done{opacity:.82}
 .li.choiceLi.done .co button{opacity:.5}
 
 /* ===== Toast ===== */
 #toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translate(-50%,8px);
-  background:var(--toastBg);color:var(--toastFg);padding:10px 18px;border-radius:999px;font-size:13px;
-  max-width:82%;text-align:center;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:500}
+  background:var(--toastBg);color:var(--toastFg);padding:var(--sp-5) var(--sp-8);border-radius:var(--r-pill);font-size:var(--fs-md);
+  max-width:82%;text-align:center;opacity:0;pointer-events:none;transition:opacity var(--dur-slow),transform var(--dur-slow);z-index:var(--z-toast)}
 #toast.on{opacity:1;transform:translate(-50%,0)}
 /* ===== 日志：属性增减逐项着色（+ 涨绿、- 跌红） ===== */
-.dl{font-size:11.5px;margin-left:6px;white-space:normal;display:inline-block}
-.dl i{font-style:normal;font-weight:700;margin-right:5px;font-variant-numeric:tabular-nums}
+.dl{font-size:var(--fs-sm);margin-left:var(--sp-3);white-space:normal;display:inline-block}
+.dl i{font-style:normal;font-weight:700;margin-right:var(--sp-2);font-variant-numeric:tabular-nums}
 .dl i.up{color:var(--ok)}
 .dl i.down{color:var(--bad)}
-.li.enter{animation:liIn .5s ease both}
+/* 新日志行入场：比常规过渡慢一档，让「这一年发生了什么」有被看见的余地 */
+/* 日志新行入场：260ms、decelerate —— 落在规范的「列表项 ≤400ms」预算内。
+   日志是逐行追加的（不是整批重排），所以不需要每项再叠 stagger。 */
+.li.enter{animation:liIn var(--dur-layer) var(--ease-out) both}
 @keyframes liIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 /* ===== 自定义下拉（替代原生 select） =====
  * 结构：.dsel 容器 > .dval 触发钮（combobox）+ .dpanel 面板（listbox）> .dopt 选项（option）。
  * 为什么不直接用原生 select 标签：其下拉弹层由系统 WebView 绘制，CSS 完全管不到，
  *   收起态可用 appearance:none 修，展开态仍是系统白底原生样式，无法跟随主题。
  * 故自绘组件，代价是要手动补无障碍语义（role + aria-*）与键盘导航，见 dselFill/dselSet。 */
-.dsel{position:relative;width:100%;margin-top:9px}
-.dsel .dval{width:100%;background:var(--field);border-radius:12px;padding:13px 40px 13px 14px;color:var(--acc);
-  font-size:14px;text-align:left;position:relative;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dsel .dval{cursor:pointer}
+.dsel{position:relative;width:100%;margin-top:var(--sp-4)}
+.dsel .dval{width:100%;background:var(--field);border-radius:var(--r-lg);padding:var(--sp-6) var(--sp-13) var(--sp-6) var(--sp-7);color:var(--acc);
+  cursor:pointer;
+  font-size:var(--fs-base);text-align:left;position:relative;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsel .dval::after{content:'\25BE';position:absolute;right:14px;top:50%;transform:translateY(-50%);
-  color:var(--dim);font-size:12px;transition:transform .2s}
+  color:var(--dim);font-size:var(--fs-sm);transition:transform var(--dur-base)}
 .dsel.on .dval::after{transform:translateY(-50%) rotate(180deg)}
-.dsel .dpanel{display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:60;
-  background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);
-  max-height:250px;overflow-y:auto;padding:6px}
+.dsel .dpanel{display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:var(--z-drop);
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-xl);box-shadow:var(--shadow);
+  max-height:250px;overflow-y:auto;padding:var(--sp-3)}
 .dsel.on .dpanel{display:block}
-.dsel .dopt{padding:11px 12px;border-radius:10px;font-size:14px;color:var(--fg);
+.dsel .dopt{padding:var(--sp-5) var(--sp-6);border-radius:var(--r-md);font-size:var(--fs-base);color:var(--fg);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dsel .dopt.sel{background:var(--accSoft);color:var(--acc);font-weight:600}
 .dsel .dopt:active{background:var(--soft)}
 /* ===== 自定义开关（替代原生 checkbox） ===== */
-.swx{width:50px;height:30px;border-radius:999px;background:var(--soft);border:1px solid var(--line);
-  position:relative;flex:none;transition:background .2s ease,border-color .2s ease}
+.swx{width:50px;height:30px;border-radius:var(--r-pill);background:var(--soft);border:1px solid var(--line);
+  position:relative;flex:none;transition:background var(--dur-base) ease,border-color var(--dur-base) ease}
 .swx i{position:absolute;top:2px;left:2px;width:24px;height:24px;border-radius:50%;background:var(--card);
-  box-shadow:var(--knobSh);transition:left .22s cubic-bezier(.22,.9,.3,1)}
+  box-shadow:var(--knobSh);transition:left var(--dur-slow) cubic-bezier(.22,.9,.3,1)}
 .swx.on{background:var(--acc);border-color:var(--acc)}
 .swx.on i{left:24px;background:var(--onAcc)}
 /* ---- 历史战绩页 ---- */
-#scRec .rccard{background:var(--card);border-radius:16px;padding:14px 15px;margin-bottom:11px;box-shadow:var(--shadow);cursor:pointer}
-#scRec .rchint{font-size:12px;color:var(--dim);margin:0 3px 10px}
-#scRec .rctop{display:flex;align-items:baseline;gap:8px}
-#scRec .rcrank{font-size:22px;font-weight:800;background:var(--grad2);
+#scRec .rccard{background:var(--card);border-radius:var(--r-xl);padding:var(--sp-7) var(--sp-7);margin-bottom:var(--sp-5);box-shadow:var(--shadow);cursor:pointer}
+#scRec .rchint{font-size:var(--fs-sm);color:var(--dim);margin:0 var(--sp-1) var(--sp-5)}
+#scRec .rctop{display:flex;align-items:baseline;gap:var(--sp-4)}
+#scRec .rcrank{font-size:var(--fs-2xl);font-weight:800;background:var(--grad2);
   -webkit-background-clip:text;background-clip:text;color:transparent;flex:none}
-#scRec .rcname{font-size:15px;font-weight:600;flex:1}
-#scRec .rcage{font-size:12px;color:var(--dim);flex:none}
-#scRec .rcmeta{font-size:11.5px;color:var(--dim);margin-top:5px;line-height:1.6}
-#scRec .rcchips{margin-top:7px;display:flex;flex-wrap:wrap;gap:5px}
-#scRec .rcchip{font-size:11px;padding:2.5px 8px;border-radius:9px;background:var(--soft);color:var(--dim)}
-#scRec .rcepi{margin-top:9px;font-size:13px;line-height:1.8;color:var(--fg);
-  white-space:pre-wrap;word-break:break-word;padding-top:9px;border-top:1px solid var(--line)}
-#scRec .rcempty{text-align:center;color:var(--dim);font-size:13px;padding:52px 0;line-height:2}
+#scRec .rcname{font-size:var(--fs-lg);font-weight:600;flex:1}
+#scRec .rcage{font-size:var(--fs-sm);color:var(--dim);flex:none}
+#scRec .rcmeta{font-size:var(--fs-sm);color:var(--dim);margin-top:var(--sp-2);line-height:1.6}
+#scRec .rcchips{margin-top:var(--sp-3);display:flex;flex-wrap:wrap;gap:var(--sp-2)}
+#scRec .rcchip{font-size:var(--fs-xs);padding:var(--sp-1) var(--sp-4);border-radius:var(--r-md);background:var(--soft);color:var(--dim)}
+#scRec .rcepi{margin-top:var(--sp-4);font-size:var(--fs-md);line-height:1.8;color:var(--fg);
+  white-space:pre-wrap;word-break:break-word;padding-top:var(--sp-4);border-top:1px solid var(--line)}
+#scRec .rcempty{text-align:center;color:var(--dim);font-size:var(--fs-md);padding:var(--sp-15) 0;line-height:2}
 
 /* 结算页「AI 文案入库」开关行：与设置面板的 #modal .sw 同构，但不依赖 #modal 作用域 */
-.ovsw{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0}
+.ovsw{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-6);padding:var(--sp-3) 0}
 .ovsw.off{opacity:.45}
-.ovsw .st{font-size:14px;font-weight:600}
-.ovsw .sd{font-size:12px;color:var(--dim);margin-top:2px}
+.ovsw .st{font-size:var(--fs-base);font-weight:600}
+.ovsw .sd{font-size:var(--fs-sm);color:var(--dim);margin-top:var(--sp-1)}
 /* v0.1.3 C：结算页「AI 文案入库」改一键入库按钮（回看态下禁用成只读） */
-.ovOne{border-radius:12px;padding:11px 16px;font-size:14px;font-weight:600;white-space:nowrap;
+.ovOne{border-radius:var(--r-lg);padding:var(--sp-5) var(--sp-8);font-size:var(--fs-base);font-weight:600;white-space:nowrap;
   background:var(--accSoft);color:var(--acc);border:1px solid var(--accLine)}
 .ovOne:disabled{opacity:.6;background:var(--soft);color:var(--dim);border-color:var(--line)}
 /* ===== 设置卡折叠 ===== */
-.chead .arw,.top .arw{margin-left:auto;color:var(--dim);font-size:12px;transition:transform .2s ease;flex:none}
+.chead .arw,.top .arw{margin-left:auto;color:var(--dim);font-size:var(--fs-sm);transition:transform var(--dur-base) ease;flex:none}
 .chead.tap{cursor:pointer}
 .card.fold .arw{transform:rotate(-90deg)}
 #modal .card.fold .cbody{display:none}
 /* ===== AI 占比 ===== */
-#cfgAiV{font-size:22px;font-weight:800;color:var(--acc);font-variant-numeric:tabular-nums;
-  transition:color .5s ease;margin-left:8px}
-.range .rk{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-top:4px}
+#cfgAiV{font-size:var(--fs-2xl);font-weight:800;color:var(--acc);font-variant-numeric:tabular-nums;
+  transition:color var(--dur-slow) ease;margin-left:var(--sp-4)}
+.range .rk{display:flex;justify-content:space-between;font-size:var(--fs-xs);color:var(--dim);margin-top:var(--sp-2)}
 /* ===== 数据管理子页 ===== */
 /* 分类栏：一行排开 + 溢出左右滑（7 个分类任何屏宽都装得下，不再换行也不再被压扁） */
-#dbPage .dbseg{display:flex;flex-wrap:nowrap;gap:8px;margin-bottom:12px;
-  overflow-x:auto;overscroll-behavior-x:contain;padding-bottom:2px;
+#dbPage .dbseg{display:flex;flex-wrap:nowrap;gap:var(--sp-4);margin-bottom:var(--sp-6);
+  overflow-x:auto;overscroll-behavior-x:contain;padding-bottom:var(--sp-1);
   -webkit-overflow-scrolling:touch;scrollbar-width:none}
 #dbPage .dbseg::-webkit-scrollbar{display:none}
-#dbPage .dbseg button{flex:0 0 auto;white-space:nowrap;border-radius:12px;padding:9px 15px;font-size:13px;
+#dbPage .dbseg button{flex:0 0 auto;white-space:nowrap;border-radius:var(--r-lg);padding:var(--sp-4) var(--sp-7);font-size:var(--fs-md);
   background:var(--soft);text-align:center;border:1px solid transparent}
 #dbPage .dbseg button.on{border-color:var(--acc);background:var(--accSoft);color:var(--acc);font-weight:600}
 /* ===== 模式筛选器（数据管理页顶部）：点开向下展开选模式 ===== */
-#dbPage .modebar{position:relative;margin-bottom:12px}
-#dbPage .mfilter{display:flex;align-items:center;gap:8px;width:100%;border-radius:12px;
-  padding:11px 14px;background:var(--soft);border:1px solid var(--line);font-size:13.5px;font-weight:600}
-#dbPage .mfilter .mf-ic{flex:none;font-size:12px;color:var(--dim)}
+#dbPage .modebar{position:relative;margin-bottom:var(--sp-6)}
+#dbPage .mfilter{display:flex;align-items:center;gap:var(--sp-4);width:100%;border-radius:var(--r-lg);
+  padding:var(--sp-5) var(--sp-7);background:var(--soft);border:1px solid var(--line);font-size:var(--fs-base);font-weight:600}
+#dbPage .mfilter .mf-ic{flex:none;font-size:var(--fs-sm);color:var(--dim)}
 #dbPage .mfilter .mf-tx{flex:1;text-align:left;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#dbPage .mfilter .mf-ar{flex:none;color:var(--dim);font-size:12px;transition:transform .2s ease}
+#dbPage .mfilter .mf-ar{flex:none;color:var(--dim);font-size:var(--fs-sm);transition:transform var(--dur-base) ease}
 #dbPage .modebar.on .mfilter{border-color:var(--acc);background:var(--accSoft)}
 #dbPage .modebar.on .mfilter .mf-tx{color:var(--acc)}
 #dbPage .modebar.on .mf-ar{transform:rotate(180deg)}
-#dbPage .mfdrop{display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:60;
-  background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:6px}
+#dbPage .mfdrop{display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:var(--z-drop);
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r-xl);box-shadow:var(--shadow);padding:var(--sp-3)}
 #dbPage .modebar.on .mfdrop{display:block}
-#dbPage .mfopt{display:flex;align-items:center;gap:8px;width:100%;padding:11px 12px;border-radius:10px;
-  font-size:13.5px;color:var(--fg);text-align:left}
-#dbPage .mfopt small{margin-left:auto;font-size:10.5px;color:var(--dim);flex:none}
+#dbPage .mfopt{display:flex;align-items:center;gap:var(--sp-4);width:100%;padding:var(--sp-5) var(--sp-6);border-radius:var(--r-md);
+  font-size:var(--fs-base);color:var(--fg);text-align:left}
+#dbPage .mfopt small{margin-left:auto;font-size:var(--fs-xs);color:var(--dim);flex:none}
 #dbPage .mfopt.sel{background:var(--accSoft);color:var(--acc);font-weight:600}
 #dbPage .mfopt.sel small{color:var(--acc)}
 #dbPage .mfopt:disabled{opacity:.42}
@@ -527,279 +629,627 @@ input,textarea{-webkit-user-select:auto;user-select:auto}
 /* 按钮行：数据管理页一直缺这套 CSS。全局 reset 把 button 的 background/border/padding 全清了，
    没有本套规则时按钮会退化成裸文字，多个按钮挨在一起还会被读屏连读成一串乱码。
    样式对齐 #modal / #dbgPage 的既有风格，三套主题下都用变量取色。 */
-#dbPage .acts{display:flex;gap:10px;margin-top:10px}
-#dbPage .acts button{flex:1;border-radius:12px;padding:13px;font-size:14.5px;font-weight:600;
+#dbPage .acts{display:flex;gap:var(--sp-5);margin-top:var(--sp-5)}
+#dbPage .acts button{flex:1;border-radius:var(--r-lg);padding:var(--sp-6);font-size:var(--fs-lg);font-weight:600;
   text-align:center;background:var(--grad);color:var(--onAcc)}
 #dbPage .acts button.ghost{background:var(--soft);color:var(--fg)}
 /* 双行标注：主标题 + 副说明（保留样式，供后续复用） */
-#dbPage .acts button .abt{display:block;font-size:14.5px;line-height:1.25}
-#dbPage .acts button .abd{display:block;font-size:11px;font-weight:400;line-height:1.3;margin-top:3px;opacity:.82}
+#dbPage .acts button .abt{display:block;font-size:var(--fs-lg);line-height:1.25}
+#dbPage .acts button .abd{display:block;font-size:var(--fs-xs);font-weight:400;line-height:1.3;margin-top:var(--sp-1);opacity:.82}
 /* 卡片折叠：与设置页同款机制。原来只在 #modal 下生效，数据管理页必须单独写一套，
    否则点了卡头只转箭头、内容不收。 */
 #dbPage .card.fold .cbody{display:none}
 #dbPage .card.fold .arw{transform:rotate(-90deg)}
 #dbPage .card.fold .chead{margin-bottom:0}
 /* 文本体检卡头右侧的主按钮：卡头是 flex，用 margin-left:auto 推到最右 */
-#dbPage .chead .tkrun{margin-left:auto;flex:none;border-radius:11px;padding:9px 16px;
-  font-size:13.5px;font-weight:600;text-align:center;background:var(--grad);color:var(--onAcc)}
+#dbPage .chead .tkrun{margin-left:auto;flex:none;border-radius:var(--r-md);padding:var(--sp-4) var(--sp-8);
+  font-size:var(--fs-base);font-weight:600;text-align:center;background:var(--grad);color:var(--onAcc)}
 #dbPage .chead .tkrun:active{opacity:.82}
-.dbrow{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--line);font-size:13px}
+.dbrow{display:flex;align-items:center;gap:var(--sp-4);padding:var(--sp-5) 0;border-bottom:1px solid var(--line);font-size:var(--fs-md)}
 .dbrow:last-child{border-bottom:none}
 .dbrow .dt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dbrow .dtag{font-size:10.5px;padding:2px 7px;border-radius:999px;background:var(--soft);color:var(--dim);flex:none}
-.dbrow .dact{font-size:12px;color:var(--acc);font-weight:600;flex:none}
+.dbrow .dtag{font-size:var(--fs-xs);padding:var(--sp-1) var(--sp-3);border-radius:var(--r-pill);background:var(--soft);color:var(--dim);flex:none}
+.dbrow .dact{font-size:var(--fs-sm);color:var(--acc);font-weight:600;flex:none}
 .dbrow .dtag.src0{background:var(--src0bg);color:var(--src0fg)}
 .dbrow .dtag.src1{background:var(--src1bg);color:var(--src1fg)}
 .dbrow .dtag.src2{background:var(--src2bg);color:var(--src2fg)}
 #dirNow{color:var(--acc);font-weight:600}
-#dbList .dbcard{padding:14px 16px;margin-bottom:12px}
-#dbList .dbhint{font-size:11.5px;color:var(--dim);margin:0 2px 10px}
+#dbList .dbcard{padding:var(--sp-7) var(--sp-8);margin-bottom:var(--sp-6)}
+#dbList .dbhint{font-size:var(--fs-sm);color:var(--dim);margin:0 var(--sp-1) var(--sp-5)}
 #dbList .dbcard>.chead{margin-bottom:0;cursor:pointer}
-#dbList .dbcard .dbsub{margin-top:6px}
-#dbList .dbcard .cbody{margin-top:10px}
+#dbList .dbcard .dbsub{margin-top:var(--sp-3)}
+#dbList .dbcard .cbody{margin-top:var(--sp-5)}
 /* 折叠：#dbPage 不在 #modal 内，必须单独写一套（否则点了只转箭头、内容不收） */
 #dbList .dbcard.fold .cbody{display:none}
 #dbList .dbcard.fold .dbsub{display:none}
 #dbList .dbcard.fold .arw{transform:rotate(-90deg)}
-#dbList .dbcard .dbn{margin-left:auto;margin-right:8px;font-size:12px;color:var(--dim)}
-#dbList .dbempty{font-size:12px;color:var(--dim);padding:8px 0}
+#dbList .dbcard .dbn{margin-left:auto;margin-right:var(--sp-4);font-size:var(--fs-sm);color:var(--dim)}
+#dbList .dbempty{font-size:var(--fs-sm);color:var(--dim);padding:var(--sp-4) 0}
 #dbList .dbrow{cursor:pointer}
 #dbList .dbrow.on{color:var(--acc)}
 #dbList .dbrow.on .dt{color:var(--acc)}
-#dbList .dbrow .darw{font-size:11px;color:var(--dim);flex:none;transition:transform .2s ease}
+#dbList .dbrow .darw{font-size:var(--fs-xs);color:var(--dim);flex:none;transition:transform var(--dur-base) ease}
 #dbList .dbrow.on .darw{transform:rotate(180deg)}
 #dbList .dbdet.hide{display:none}
-#dbList .dbdet{padding:0 0 10px}
+#dbList .dbdet{padding:0 0 var(--sp-5)}
 /* 文本体检卡：属性偏向分布 */
-.tkgrid{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-.tkfold{margin-top:8px}
-.tkfold>summary{font-size:12px;color:var(--dim);cursor:pointer;list-style:none;
-  padding:6px 2px;-webkit-user-select:none;user-select:none}
+.tkgrid{display:flex;flex-wrap:wrap;gap:var(--sp-3);margin-top:var(--sp-5)}
+.tkfold{margin-top:var(--sp-4)}
+.tkfold>summary{font-size:var(--fs-sm);color:var(--dim);cursor:pointer;list-style:none;
+  padding:var(--sp-3) var(--sp-1);-webkit-user-select:none;user-select:none}
 .tkfold>summary::-webkit-details-marker{display:none}
 .tkfold>summary::before{content:'▸ ';color:var(--acc)}
 .tkfold[open]>summary::before{content:'▾ '}
-.tkfoldin{display:flex;flex-wrap:wrap;gap:6px;padding:2px}
-.tksub{font-size:11.5px;padding:3px 8px;border-radius:8px;background:var(--soft);color:var(--dim)}
-.tksub b{margin-left:5px;color:var(--fg);font-variant-numeric:tabular-nums}
-.tkchip{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:4px 9px;
-  border-radius:9px;background:var(--soft);border:1px solid var(--line);color:var(--dim)}
-.tkchip b{font-weight:700;font-size:12px;font-variant-numeric:tabular-nums;color:var(--fg)}
-.tkchip .tkb{display:block;height:4px;border-radius:2px;background:var(--acc);opacity:.45;min-width:3px}
+.tkfoldin{display:flex;flex-wrap:wrap;gap:var(--sp-3);padding:var(--sp-1)}
+.tksub{font-size:var(--fs-sm);padding:var(--sp-1) var(--sp-4);border-radius:var(--r-md);background:var(--soft);color:var(--dim)}
+.tksub b{margin-left:var(--sp-2);color:var(--fg);font-variant-numeric:tabular-nums}
+.tkchip{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-xs);padding:var(--sp-2) var(--sp-4);
+  border-radius:var(--r-md);background:var(--soft);border:1px solid var(--line);color:var(--dim)}
+.tkchip b{font-weight:700;font-size:var(--fs-sm);font-variant-numeric:tabular-nums;color:var(--fg)}
+.tkchip .tkb{display:block;height:4px;border-radius:var(--r-sm);background:var(--acc);opacity:.45;min-width:3px}
 .tkchip.hot{background:var(--accSoft);border-color:transparent;color:var(--acc)}
 .tkchip.hot b{color:var(--acc)}
-.tkchip.warn b{color:var(--bad)}
-.tkempty{font-size:12px;color:var(--dim);padding:6px 0}
-.afftag{font-size:10px;padding:2px 6px;border-radius:6px;background:var(--accSoft);color:var(--acc);
-  flex:none;margin-right:6px;font-weight:600}
-.dbpre{font-size:12px;color:var(--dim);line-height:1.6;word-break:break-word;max-height:260px;overflow-y:auto;
-  background:var(--soft);border-radius:10px;padding:10px;margin-top:8px;
+/* 告警态用琥珀色而不是红色 —— 这几个数字（未标注 / 无需求 / 库存不足）
+   是「提醒你去看一眼」，不是「出错了」，用 --bad 会显得像故障。
+   --warn 此前定义了却没人用，这里接上，语义也正好对上。 */
+.tkchip.warn b{color:var(--warn)}
+.tkempty{font-size:var(--fs-sm);color:var(--dim);padding:var(--sp-3) 0}
+.afftag{font-size:var(--fs-xs);padding:var(--sp-1) var(--sp-3);border-radius:var(--r-sm);background:var(--accSoft);color:var(--acc);
+  flex:none;margin-right:var(--sp-3);font-weight:600}
+.dbpre{font-size:var(--fs-sm);color:var(--dim);line-height:1.6;word-break:break-word;max-height:260px;overflow-y:auto;
+  background:var(--soft);border-radius:var(--r-md);padding:var(--sp-5);margin-top:var(--sp-4);
   white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace}
-.darea{width:100%;min-height:110px;background:var(--field);border-radius:12px;padding:12px;
-  color:var(--fg);font-size:13px;margin-top:9px;line-height:1.6;border:1px solid var(--line);resize:vertical}
+.darea{width:100%;min-height:110px;background:var(--field);border-radius:var(--r-lg);padding:var(--sp-6);
+  color:var(--fg);font-size:var(--fs-md);margin-top:var(--sp-4);line-height:1.6;border:1px solid var(--line);resize:vertical}
 #modal .card.fold>.fm,#modal .card.fold>.sw,#modal .card.fold>.note,#modal .card.fold>.acts,#modal .card.fold>p,#modal .card.fold>.dsel,#modal .card.fold>.mrow,#modal .card.fold>.range{display:none}
-.rk{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-top:4px}
-#dbPage{position:fixed;inset:0;left:0;right:0;z-index:200;background:var(--bg);display:none;flex-direction:column;max-width:560px;margin:0 auto}
+.rk{display:flex;justify-content:space-between;font-size:var(--fs-xs);color:var(--dim);margin-top:var(--sp-2)}
+#dbPage{position:fixed;inset:0;left:0;right:0;z-index:var(--z-page);background:var(--bg);display:none;flex-direction:column;max-width:var(--app-w);margin:0 auto}
 #dbPage.on{display:flex}
 /* ===== 关于页 / 调试页 ===== */
 #aboutPage,#dbgPage{position:fixed;inset:0;left:0;right:0;background:var(--bg);display:none;
-  flex-direction:column;max-width:560px;margin:0 auto}
-#aboutPage{z-index:210}
-#dbgPage{z-index:220}
+  flex-direction:column;max-width:var(--app-w);margin:0 auto}
+#aboutPage{z-index:var(--z-page2)}
+#dbgPage{z-index:var(--z-page3)}
 #aboutPage.on,#dbgPage.on{display:flex}
-#dbgPage .dbgrow{display:flex;gap:10px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--line)}
+/* ===== Token 消耗统计页（入口：设置 → API 设置 → 用量统计）=====
+   顶栏沿用关于页 / 调试页的通用 .topbar；配色全部走主题变量，
+   深浅两套自动适配，避免和既有页面割裂。 */
+#tkPage{position:fixed;inset:0;left:0;right:0;background:var(--bg);display:none;flex-direction:column;
+  max-width:var(--app-w);margin:0 auto;z-index:var(--z-page2b)}
+#tkPage.on{display:flex}
+#tkPage .topbar{flex:none}
+#tkPage .page{padding-top:var(--sp-6)}
+#tkPage .note{margin-top:var(--sp-6)}
+.tku-top{display:flex;align-items:center;gap:var(--sp-5);margin-bottom:var(--sp-7)}
+.tku-seg{flex:1;min-width:0;display:flex;gap:var(--sp-2);background:var(--soft);border-radius:var(--r-lg);padding:var(--sp-2)}
+.tku-seg button{flex:1;border-radius:var(--r-md);padding:var(--sp-5) 0;font-size:var(--fs-base);
+  text-align:center;color:var(--dim);transition:background var(--dur-base) ease,color var(--dur-base) ease}
+.tku-seg button.on{background:var(--accSoft);color:var(--acc);font-weight:600}
+.tku-date{position:relative;display:flex;align-items:center;gap:var(--sp-2);flex:none}
+.tku-date.hide{display:none}
+.tku-nav{width:28px;height:28px;border-radius:var(--r-md);background:var(--soft);color:var(--dim);
+  font-size:var(--fs-lg);line-height:1;display:flex;align-items:center;justify-content:center}
+.tku-nav:active{opacity:.7}
+.tku-dbtn{display:flex;align-items:center;gap:var(--sp-3);border-radius:var(--r-md);padding:var(--sp-4) var(--sp-6);
+  background:var(--soft);font-size:var(--fs-md);font-weight:600;color:var(--fg)}
+.tku-dbtn:active{opacity:.8}
+.tku-cal{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;color:var(--dim)}
+/* 原生日期选择器：留在布局里但不可见，否则部分 WebView 不允许 showPicker() */
+.tku-din{position:absolute;left:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0;padding:0}
+/* 周期总览卡 */
+.tku-ov{padding:var(--sp-9) var(--sp-8) var(--sp-8)}
+.tku-ohead{display:flex;align-items:center;gap:var(--sp-5);flex-wrap:wrap}
+.tku-ot{font-size:var(--fs-lg);font-weight:600}
+.tku-pills{display:flex;gap:var(--sp-4);flex-wrap:wrap}
+.tku-pill{font-size:var(--fs-xs);color:var(--dim);background:var(--soft);border-radius:var(--r-pill);padding:var(--sp-2) var(--sp-5)}
+.tku-big{display:flex;align-items:baseline;gap:var(--sp-4);margin-top:var(--sp-5)}
+.tku-big b{font-size:44px;line-height:1.05;font-weight:700;color:var(--acc);letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.tku-big span{font-size:var(--fs-lg);color:var(--dim)}
+.tku-cost{display:flex;align-items:center;gap:var(--sp-4);margin-top:var(--sp-2);font-size:var(--fs-md);color:var(--dim)}
+.tku-cost b{font-size:var(--fs-xl);color:var(--fg);font-variant-numeric:tabular-nums}
+.tku-price{margin-left:auto;font-size:var(--fs-xs);color:var(--acc);border:1px solid var(--accLine);
+  border-radius:var(--r-pill);padding:var(--sp-1) var(--sp-5)}
+.tku-price:active{opacity:.7}
+.tku-chart{margin-top:var(--sp-7)}
+.tku-svg{width:100%;height:auto;display:block;overflow:visible}
+.tku-gl{stroke:var(--line);stroke-width:1;stroke-dasharray:4 6}
+.tku-gt{fill:var(--dim);font-size:11px}
+.tku-line{fill:none;stroke:var(--acc);stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round}
+.tku-area{fill:url(#tkuFill);stroke:none}
+.tku-dot{fill:var(--acc);stroke:var(--card);stroke-width:1.6}
+.tku-svg .s1{stop-color:var(--acc);stop-opacity:.28}
+.tku-svg .s2{stop-color:var(--acc);stop-opacity:0}
+.tku-cap{margin-top:var(--sp-5);font-size:var(--fs-sm);color:var(--dim);font-variant-numeric:tabular-nums}
+/* 四宫格汇总 */
+.tku-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-6)}
+.tku-stat{display:flex;align-items:center;gap:var(--sp-6);background:var(--card);border-radius:var(--r-xl);
+  padding:var(--sp-7) var(--sp-8);box-shadow:var(--cardSh)}
+.tku-icw{flex:none;width:38px;height:38px;border-radius:var(--r-md);background:var(--accSoft);color:var(--acc);
+  display:flex;align-items:center;justify-content:center}
+.tku-ic{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tku-stat .k{font-size:var(--fs-sm);color:var(--dim)}
+.tku-stat .v{font-size:var(--fs-xl);font-weight:700;font-variant-numeric:tabular-nums;margin-top:var(--sp-1)}
+#dbgPage .dbgrow{display:flex;gap:var(--sp-5);font-size:var(--fs-md);padding:var(--sp-3) 0;border-bottom:1px solid var(--line)}
 #dbgPage .dbgrow:last-child{border-bottom:none}
 #dbgPage .dbgrow .v{flex:1;text-align:right;word-break:break-all;
   font-family:ui-monospace,Menlo,Consolas,monospace}
-#dbgPage .dbglog{font-size:11.5px;line-height:1.55;white-space:pre-wrap;word-break:break-all;
-  background:var(--soft);border-radius:10px;padding:10px;max-height:280px;overflow-y:auto;
+#dbgPage .dbglog{font-size:var(--fs-sm);line-height:1.55;white-space:pre-wrap;word-break:break-all;
+  background:var(--soft);border-radius:var(--r-md);padding:var(--sp-5);max-height:280px;overflow-y:auto;
   font-family:ui-monospace,Menlo,Consolas,monospace;color:var(--dim)}
-#dbgPage .acts{display:flex;gap:10px;margin-top:10px}
-#dbgPage .acts button{flex:1;border-radius:12px;padding:13px;font-size:14.5px;font-weight:600;
+#dbgPage .acts{display:flex;gap:var(--sp-5);margin-top:var(--sp-5)}
+#dbgPage .acts button{flex:1;border-radius:var(--r-lg);padding:var(--sp-6);font-size:var(--fs-lg);font-weight:600;
   text-align:center;background:var(--grad);color:var(--onAcc)}
 #dbgPage .acts button.ghost{background:var(--soft);color:var(--fg)}
-#dbgPage .dacts{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
-#dbgPage .dacts button{flex:1 1 calc(50% - 4px);border-radius:12px;padding:12px;font-size:13.5px;
+#dbgPage .dacts{display:flex;flex-wrap:wrap;gap:var(--sp-4);margin-top:var(--sp-2)}
+#dbgPage .dacts button{flex:1 1 calc(50% - 4px);border-radius:var(--r-lg);padding:var(--sp-6);font-size:var(--fs-base);
   font-weight:600;text-align:center;background:var(--soft);color:var(--bad)}
 /* 调试页开关行：与设置面板 #modal .sw 同构。原来只写了内部 .st/.sd，行本身没有 flex，
    「无敌模式」那一行会退化成左右两段裸文字。 */
-#dbgPage .sw{display:flex;align-items:center;justify-content:space-between;gap:12px;
-  padding:10px 0;border-bottom:1px solid var(--line)}
+#dbgPage .sw{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-6);
+  padding:var(--sp-5) 0;border-bottom:1px solid var(--line)}
 #dbgPage .sw:last-child{border-bottom:none}
-#dbgPage .sw .st{font-size:14px;font-weight:600}
-#dbgPage .sw .sd{font-size:12px;color:var(--dim);margin-top:2px}
+#dbgPage .sw .st{font-size:var(--fs-base);font-weight:600}
+#dbgPage .sw .sd{font-size:var(--fs-sm);color:var(--dim);margin-top:var(--sp-1)}
 
 /* ==================== 开局读条（需求 C） ==================== */
-#bootPage{position:fixed;inset:0;z-index:400;background:var(--bg);display:none;
-  flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:32px}
+#bootPage{position:fixed;inset:0;z-index:var(--z-boot);background:var(--bg);display:none;
+  flex-direction:column;align-items:center;justify-content:center;gap:var(--sp-8);
+  /* 避开刘海与底部手势条，内容不被遮挡 */
+  padding:calc(var(--sp-12) + env(safe-area-inset-top)) var(--sp-12)
+    calc(var(--sp-12) + env(safe-area-inset-bottom))}
 #bootPage.on{display:flex}
-#bootPage .btitle{font-size:17px;font-weight:700;color:var(--fg)}
-#bootPage .btip{font-size:13px;color:var(--dim);min-height:18px;text-align:center}
-#bootPage .bbar{width:78%;max-width:330px;height:7px;border-radius:99px;background:var(--soft);overflow:hidden}
-#bootPage .bbar i{display:block;height:100%;width:0;border-radius:99px;background:var(--grad);transition:width .25s ease}
-#bootPage .bpct{font-size:12.5px;color:var(--dim);font-variant-numeric:tabular-nums}
-#bootPage .bdots{display:flex;gap:6px}
+#bootPage .btitle{font-size:var(--fs-xl);font-weight:700;color:var(--fg)}
+#bootPage .btip{font-size:var(--fs-md);color:var(--dim);min-height:18px;text-align:center}
+#bootPage .bbar{width:78%;max-width:330px;height:7px;border-radius:var(--r-pill);background:var(--soft);overflow:hidden}
+#bootPage .bbar i{display:block;height:100%;width:0;border-radius:var(--r-pill);background:var(--grad);transition:width var(--dur-slow) ease}
+#bootPage .bpct{font-size:var(--fs-md);color:var(--dim);font-variant-numeric:tabular-nums}
+#bootPage .bdots{display:flex;gap:var(--sp-3)}
 #bootPage .bdots s{width:7px;height:7px;border-radius:50%;background:var(--acc);opacity:.25;
-  animation:bootDot 1.1s ease-in-out infinite;text-decoration:none}
+  animation:bootDot 1.2s ease-in-out infinite;text-decoration:none}
 #bootPage .bdots s:nth-child(2){animation-delay:.18s}
 #bootPage .bdots s:nth-child(3){animation-delay:.36s}
 @keyframes bootDot{0%,100%{opacity:.22;transform:translateY(0)}50%{opacity:.85;transform:translateY(-3px)}}
 /* 悬浮窗开关行（调试面板危险区） */
-#dgFloatRow{display:flex;align-items:center;justify-content:space-between;gap:12px;
-  padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
-#dgFloatRow .st{font-size:14px;font-weight:600}
-#dgFloatRow .sd{font-size:12px;color:var(--dim);margin-top:2px}
+#dgFloatRow{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-6);
+  padding:var(--sp-5) 0;border-bottom:1px solid var(--line);cursor:pointer}
+#dgFloatRow .st{font-size:var(--fs-base);font-weight:600}
+#dgFloatRow .sd{font-size:var(--fs-sm);color:var(--dim);margin-top:var(--sp-1)}
 
 /* ===== 调试页视觉统一（v0.1.2）===== */
-#dbgPage .page{padding-top:12px}
-#dbgPage .card{margin-bottom:12px;box-shadow:var(--cardSh)}
-#dbgPage .chead{font-size:14.5px;margin-bottom:10px}
-#dbgPage .chead .dot{width:18px;height:18px;border-radius:6px;opacity:.92}
-#dbgPage .note{font-size:12px;line-height:1.65}
+#dbgPage .page{padding-top:var(--sp-6)}
+#dbgPage .card{margin-bottom:var(--sp-6);box-shadow:var(--cardSh)}
+#dbgPage .chead{font-size:var(--fs-lg);margin-bottom:var(--sp-5)}
+#dbgPage .chead .dot{width:18px;height:18px;border-radius:var(--r-sm);opacity:.92}
+#dbgPage .note{font-size:var(--fs-sm);line-height:1.65}
 /* 概览行：键用淡底小签、值右对齐等宽字，读起来更像一张表 */
-#dbgPage .dbgrow{align-items:center;padding:9px 0}
-#dbgPage .dbgrow .k{flex:none;min-width:auto;font-size:11.5px;color:var(--dim);
-  background:var(--soft);border-radius:7px;padding:3px 8px}
-#dbgPage .dbgrow .v{font-size:12.5px;color:var(--fg)}
+#dbgPage .dbgrow{align-items:center;padding:var(--sp-4) 0}
+#dbgPage .dbgrow .k{flex:none;min-width:auto;font-size:var(--fs-sm);color:var(--dim);
+  background:var(--soft);border-radius:var(--r-sm);padding:var(--sp-1) var(--sp-4)}
+#dbgPage .dbgrow .v{font-size:var(--fs-md);color:var(--fg)}
 /* 日志区：更安静的浅底 + 细边框 */
-#dbgPage .dbglog{background:var(--soft);border:1px solid var(--line);border-radius:12px;
-  font-size:11.5px;line-height:1.7;max-height:240px}
+#dbgPage .dbglog{background:var(--soft);border:1px solid var(--line);border-radius:var(--r-lg);
+  font-size:var(--fs-sm);line-height:1.7;max-height:240px}
 /* 按钮组：浅底 + 描边，不再用整块实心色 */
-#dbgPage .acts{margin-top:12px}
-#dbgPage .acts button{border-radius:12px;padding:12px;font-size:14px;
+#dbgPage .acts{margin-top:var(--sp-6)}
+#dbgPage .acts button{border-radius:var(--r-lg);padding:var(--sp-6);font-size:var(--fs-base);
   background:var(--soft);color:var(--fg);border:1px solid var(--line);box-shadow:none}
 #dbgPage .acts button:active{opacity:.8}
-#dbgPage .dacts{gap:8px;margin-top:10px}
-#dbgPage .dacts button{flex:1 1 calc(50% - 4px);border-radius:11px;padding:11px;
-  font-size:13px;font-weight:600;background:var(--soft);color:var(--bad);
+#dbgPage .dacts{gap:var(--sp-4);margin-top:var(--sp-5)}
+#dbgPage .dacts button{flex:1 1 calc(50% - 4px);border-radius:var(--r-md);padding:var(--sp-5);
+  font-size:var(--fs-md);font-weight:600;background:var(--soft);color:var(--bad);
   border:1px solid var(--line);box-shadow:none}
 #dbgPage .dacts button:active{opacity:.78}
 #dbgPage .card.danger{border:1px solid var(--dangerLine)}
 #dbgPage .card.danger .chead{color:var(--bad)}
 #dbgPage .card.danger .chead .dot{background:var(--bad);opacity:.85}
-#dgFloatRow{border-bottom:none;padding:8px 0}
+#dgFloatRow{border-bottom:none;padding:var(--sp-4) 0}
+/* ===== v0.1.6：调试页分组折叠 + 错误日志独立卡 =====
+   卡片结构与设置页同构（.card[data-ck] + .chead.tap + .arw），复用 foldToggle；
+   折叠时只留卡头，避免调试页一屏塞满。概览 / 错误日志默认展开（data-def="open"）。 */
+#dbgPage .card.fold > *:not(.chead){display:none}
+#dbgPage .card.fold .arw{transform:rotate(-90deg)}
+#dbgPage .card.fold .chead{margin-bottom:0}
+#dbgPage .chead .cnt{margin-left:auto;font-size:var(--fs-sm);font-weight:600;color:var(--bad)}
+#dbgPage .chead .cnt + .arw{margin-left:var(--sp-4)}
+/* 错误日志卡：红色描边，与「危险区」区分开（一个是观察，一个是操作） */
+#dbgPage .card.errcard{border:1px solid var(--dangerLine)}
+#dbgPage .card.errcard .chead .dot{background:var(--bad);opacity:.85}
+#dbgPage .dbglog.err{color:var(--fg);border-color:var(--dangerLine);max-height:320px}
 /* ===== v0.1.5：调试页「完整数据库」改成独立只读页（不再往调试页塞表格，
    直接渲染上千行会卡；现在是一个按钮点进去，按来源分三张可折叠的卡）。
    层级：#dbgPage 220 < #dbgDb 230 < #dbgDlg(内容弹窗) 330 */
 #dbgDb{position:fixed;inset:0;left:0;right:0;background:var(--bg);display:none;flex-direction:column;
-  z-index:230}
+  z-index:var(--z-page4)}
 #dbgDb.on{display:flex}
 #dbgDb .topbar{flex:none}
-#dbgDb .page{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-top:12px;
-  padding-bottom:40px}
-#dbgDb .note{margin-bottom:10px}
+#dbgDb .page{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-top:var(--sp-6);
+  padding-bottom:var(--sp-13)}
+#dbgDb .note{margin-bottom:var(--sp-5)}
 /* 三张来源卡：本地 / 导入 / AI 加入 —— 点卡头展开向下 */
-#dbgDb .dsrcc{background:var(--card);border-radius:16px;margin-bottom:12px;
+#dbgDb .dsrcc{background:var(--card);border-radius:var(--r-xl);margin-bottom:var(--sp-6);
   box-shadow:var(--shadow);overflow:hidden}
-#dbgDb .dsrcc .chead{display:flex;align-items:center;gap:8px;padding:14px 16px;
-  cursor:pointer;font-size:14.5px}
-#dbgDb .dsrcc .chead .dbn{margin-left:auto;font-size:12px;color:var(--dim);font-weight:400}
-#dbgDb .dsrcc .chead .arw{flex:none;color:var(--dim);font-size:12px;transition:transform .2s ease}
+#dbgDb .dsrcc .chead{display:flex;align-items:center;gap:var(--sp-4);padding:var(--sp-7) var(--sp-8);
+  cursor:pointer;font-size:var(--fs-lg)}
+#dbgDb .dsrcc .chead .dbn{margin-left:auto;font-size:var(--fs-sm);color:var(--dim);font-weight:400}
+#dbgDb .dsrcc .chead .arw{flex:none;color:var(--dim);font-size:var(--fs-sm);transition:transform var(--dur-base) ease}
 #dbgDb .dsrcc.fold .cbody{display:none}
 #dbgDb .dsrcc.fold .dbsub{display:none}
 #dbgDb .dsrcc.fold .chead .arw{transform:rotate(-90deg)}
-#dbgDb .dbsub{font-size:11.5px;color:var(--dim);padding:0 16px 10px;line-height:1.6}
+#dbgDb .dbsub{font-size:var(--fs-sm);color:var(--dim);padding:0 var(--sp-8) var(--sp-5);line-height:1.6}
 #dbgDb .cbody{border-top:1px solid var(--line)}
-#dbgDb .dtag{font-size:11px;padding:3px 9px;border-radius:9px;flex:none;font-weight:600}
+#dbgDb .dtag{font-size:var(--fs-xs);padding:var(--sp-1) var(--sp-4);border-radius:var(--r-md);flex:none;font-weight:600}
 #dbgDb .dtag.src0{background:var(--src0bg);color:var(--src0fg)}
 #dbgDb .dtag.src1{background:var(--src1bg);color:var(--src1fg)}
 #dbgDb .dtag.src2{background:var(--src2bg);color:var(--src2fg)}
 /* 单条：只读，点击后弹内容，不带删除等操作 */
-#dbgDb .drow{display:flex;gap:8px;align-items:center;padding:11px 16px;
-  border-bottom:1px solid var(--line);font-size:12.5px;cursor:pointer}
+#dbgDb .drow{display:flex;gap:var(--sp-4);align-items:center;padding:var(--sp-5) var(--sp-8);
+  border-bottom:1px solid var(--line);font-size:var(--fs-md);cursor:pointer}
 #dbgDb .drow:last-child{border-bottom:none}
 #dbgDb .drow:active{background:var(--soft)}
-#dbgDb .drow .di{flex:none;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;
+#dbgDb .drow .di{flex:none;font-family:ui-monospace,Menlo,monospace;font-size:var(--fs-xs);
   color:var(--dim);max-width:74px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #dbgDb .drow .dt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#dbgDb .drow .darw{flex:none;color:var(--dim);font-size:11px}
-#dbgDb .dempty{padding:16px;text-align:center;font-size:12px;color:var(--dim)}
+#dbgDb .drow .darw{flex:none;color:var(--dim);font-size:var(--fs-xs)}
+#dbgDb .dempty{padding:var(--sp-8);text-align:center;font-size:var(--fs-sm);color:var(--dim)}
 /* ===== 单条内容弹窗（只读，可滚动） ===== */
 #dbgDlg{position:fixed;inset:0;background:var(--ovl2);display:none;align-items:center;
-  justify-content:center;z-index:330;padding:24px}
+  justify-content:center;z-index:var(--z-modal3);padding:var(--sp-10)}
 #dbgDlg.on{display:flex}
-#dbgDlg .dc{background:var(--card);border-radius:18px;padding:20px;width:100%;max-width:360px;
-  max-height:76vh;display:flex;flex-direction:column;animation:pop .18s ease both}
-#dbgDlg .dh{display:flex;align-items:center;gap:8px;flex:none;margin-bottom:10px}
-#dbgDlg .dh .dtt{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;
+#dbgDlg .dc{background:var(--card);border-radius:var(--r-xl);padding:var(--sp-9);width:100%;max-width:360px;
+  max-height:76vh;max-height:76dvh;display:flex;flex-direction:column;animation:pop var(--dur-layer) var(--ease-out) both}
+#dbgDlg .dh{display:flex;align-items:center;gap:var(--sp-4);flex:none;margin-bottom:var(--sp-5)}
+#dbgDlg .dh .dtt{font-size:var(--fs-lg);font-weight:600;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap}
-#dbgDlg .dtx{font-size:13.5px;line-height:1.7;color:var(--fg);margin:0 0 10px;
+#dbgDlg .dtx{font-size:var(--fs-base);line-height:1.7;color:var(--fg);margin:0 0 var(--sp-5);
   flex:none;max-height:30vh;overflow-y:auto}
-#dbgDlg .dmeta{font-size:11.5px;color:var(--dim);line-height:1.7;margin:0 0 10px;flex:none}
+#dbgDlg .dmeta{font-size:var(--fs-sm);color:var(--dim);line-height:1.7;margin:0 0 var(--sp-5);flex:none}
 #dbgDlg .dbody{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
-#dbgDlg .dj{font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.6;
+#dbgDlg .dj{font-family:ui-monospace,Menlo,monospace;font-size:var(--fs-xs);line-height:1.6;
   white-space:pre-wrap;word-break:break-all;color:var(--dim);background:var(--soft);
-  border:1px solid var(--line);border-radius:10px;padding:10px;margin:0}
-#dbgDlg .da{margin-top:14px;flex:none}
-#dbgDlg .da button{width:100%;border-radius:12px;padding:13px;font-size:15px;font-weight:600;
+  border:1px solid var(--line);border-radius:var(--r-md);padding:var(--sp-5);margin:0}
+#dbgDlg .da{margin-top:var(--sp-7);flex:none}
+#dbgDlg .da button{width:100%;border-radius:var(--r-lg);padding:var(--sp-6);font-size:var(--fs-lg);font-weight:600;
   background:var(--grad);color:var(--onAcc);text-align:center}
 #dbgDlg .da button:active{opacity:.85}
-/* ===== 衔接动画：让页面与元素的出现不再「硬切」 =====
-   全部为纯 CSS 过渡/动画，不改任何 JS 流程，也不影响任何结构与断言。 */
-@keyframes scIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-@keyframes cardIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+/* ===== 转场与弹层（全部走 --dur-* / --ease-* 令牌） =====
+   · 进入用 --ease-out（decelerate），退出用 --ease-in（accelerate），位移一律不用 linear；
+   · 时长落在规范区间：弹层 --dur-layer(260ms) / 页面转场 --dur-page(320ms)；
+   · 只动 transform 与 opacity —— 不触发重排，中低端机也不会掉帧。 */
+@keyframes scIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes cardIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
 @keyframes dlgIn{from{opacity:0;transform:translateY(16px) scale(.985)}to{opacity:1;transform:none}}
+/* 设置面板是整屏「抽屉」，从屏幕下缘整块推入（规范：内容从边缘滑入） */
+@keyframes sheetIn{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:none}}
 @keyframes ovlIn{from{opacity:0}to{opacity:1}}
 @keyframes ovlOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(10px)}}
-/* ① 屏幕切换：淡入（只做 opacity，避免给 .screen 造出包含块而影响内部 fixed 元素）；
-     位移动画交给 .page 与卡片承担，视觉上同样是「顺滑浮入」。 */
-.screen.on{animation:ovlIn .22s cubic-bezier(.16,1,.3,1) both}
-.screen.on .page{animation:scIn .34s cubic-bezier(.16,1,.3,1) both}
-/* ② 卡片错峰入场：同屏内的块按顺序依次浮现，形成层次感 */
-.screen.on .card{animation:cardIn .36s cubic-bezier(.16,1,.3,1) both}
-.screen.on .card:nth-child(1){animation-delay:.01s}
-.screen.on .card:nth-child(2){animation-delay:.03s}
-.screen.on .card:nth-child(3){animation-delay:.05s}
-.screen.on .card:nth-child(4){animation-delay:.07s}
-.screen.on .card:nth-child(5){animation-delay:.09s}
+/* 旧页退场：反向淡出 + 轻微左移，垫在新页底下，两端重叠 260ms（见 .screen.leaving） */
+@keyframes leaveOut{from{opacity:1;transform:none}to{opacity:0;transform:translateX(-6%)}}
+/* ① 页面切换：新页淡入 + 上移 12px（规范 8–16px 区间）。
+      旧页不会瞬间消失：goState() 会给它挂 .leaving 垫在下面做反向淡出，
+      中间不会露出底色 —— 规范里那句「禁止白屏闪一下」就是靠它解决的。 */
+.screen.on{position:relative;z-index:1;animation:ovlIn var(--dur-layer) var(--ease-out) both}
+.screen.on .page{animation:scIn var(--dur-page) var(--ease-out) both}
+/* ② 卡片错峰入场：每块 +20ms，最后一块 120ms 起跳 + 260ms = 380ms，落在 ≤400ms 预算内 */
+.screen.on .card{animation:cardIn var(--dur-layer) var(--ease-out) both}
+.screen.on .card:nth-child(1){animation-delay:.02s}
+.screen.on .card:nth-child(2){animation-delay:.04s}
+.screen.on .card:nth-child(3){animation-delay:.06s}
+.screen.on .card:nth-child(4){animation-delay:.08s}
+.screen.on .card:nth-child(5){animation-delay:.10s}
 .screen.on .card:nth-child(n+6){animation-delay:.12s}
-/* ③ 可点元素按压反馈：轻微下沉 + 缩放，松手回弹 */
-.btn,.tb,.pb,.dsel .dval,#playbar .pb,#endbar .pb{transition:transform .15s cubic-bezier(.16,1,.3,1),
-  background .18s ease,border-color .18s ease,opacity .15s ease,color .18s ease}
+/* 旧页：绝对定位垫底、禁点、反向淡出。z-index 必须写死 0 —— 新页 .on 是 1，
+   两者谁在上不能靠 DOM 顺序（比如结算页返回主页时，DOM 顺序会反着来）。 */
+.screen.leaving{display:flex;position:absolute;inset:0;z-index:0;pointer-events:none;
+  animation:leaveOut var(--dur-layer) var(--ease-in) both}
+/* 手势接管的四态（写在后面 = 优先级更高，全部 !important 只为压住入场动画）：
+   .dragging  —— 手指还按着：关掉自带动画，位移每帧只写 transform，will-change 挂上；
+   .following —— 与 .on 同寿的「入场已被手势接管」标记。没有它，松手摘掉 .dragging
+                 的那一帧入场动画会重新应用 → 整屏再淡入 / 上浮一遍（重播事故）；
+   .settling  —— 松手回位（decelerate）；.commit —— 松手离场（accelerate）。 */
+.screen.dragging{animation:none!important;transition:none!important;will-change:transform}
+.screen.following{animation:none!important}
+.screen.following .page,.screen.following .card,.screen.following .topbar,.screen.following .foot,
+#scMenu.on.following .menu-list .mbtn,#scMenu.on.following .logo .lg1,
+#scMenu.on.following .logo .lg2,#scMenu.on.following .logo .sub{animation:none!important}
+.screen.settling{transition:transform var(--dur-layer) var(--ease-out)!important;will-change:transform}
+.screen.commit{transition:transform var(--dur-layer) var(--ease-in)!important;will-change:transform}
+/* 抽屉下拉关闭：把手区竖向仍交给页面滚动（pan-y），下拉只在 scrollTop=0 时由 JS 接管；
+   .held 与 #modal.on 同寿（关闭时由观察器摘掉），保证下次打开抽屉时 sheetIn 还会播。 */
+#modal .bar{touch-action:pan-y}
+#modal .box.dragging{animation:none!important;transition:none!important;will-change:transform}
+#modal .box.held{animation:none!important}
+#modal .box.settling{transition:transform var(--dur-layer) var(--ease-out),
+  opacity var(--dur-layer) var(--ease-out)!important}
+#modal .box.dismissing{transition:transform var(--dur-layer) var(--ease-in),
+  opacity var(--dur-layer) var(--ease-in)!important}
+/* ③ 可点元素按压反馈：按下 100ms 内到位，松手 180ms 回弹。
+      单独把 :active 的时长压短 —— 只改 duration/timing-function，属性列表不变。 */
+.btn,.tb,.pb,.dsel .dval,#playbar .pb,#endbar .pb{transition:transform var(--dur-micro) var(--ease),
+  background var(--dur-micro) var(--ease),border-color var(--dur-micro) var(--ease),
+  opacity var(--dur-press) linear,color var(--dur-micro) var(--ease)}
 .btn:active,.tb:active,.pb:active,.dsel .dval:active,#playbar .pb:active,#endbar .pb:active{
-  transform:scale(.965)}
+  transform:scale(.97);transition-duration:var(--dur-press);transition-timing-function:var(--ease-out)}
 .btn:disabled:active{transform:none}
-/* ④ 弹窗：遮罩淡入，内容上浮 + 轻微放大 */
-#modal.on,#dlg.on{animation:ovlIn .2s cubic-bezier(.16,1,.3,1) both}
-#modal.on .box{animation:dlgIn .28s cubic-bezier(.16,1,.3,1) both}
-#dlg.on .dc{animation:dlgIn .26s cubic-bezier(.16,1,.3,1) both}
+/* ④ 弹窗：遮罩淡入；确认框内容上浮，设置面板整块从下缘推入 */
+#modal.on,#dlg.on{animation:ovlIn var(--dur-layer) var(--ease-out) both}
+#modal.on .box{animation:sheetIn var(--dur-layer) var(--ease-out) both}
+#dlg.on .dc{animation:dlgIn var(--dur-layer) var(--ease-out) both}
 /* 退出动画：关闭时整层淡出（遮罩+内容一起），不造包含块、不影响内部定位 */
-#modal.out,#dlg.out,#dbPage.out,#dbgPage.out,#aboutPage.out,#dbgDb.out{
-  display:flex;pointer-events:none;animation:ovlOut .16s cubic-bezier(.16,1,.3,1) both}
+#modal.out,#dlg.out,#dbPage.out,#dbgPage.out,#aboutPage.out,#dbgDb.out,#tkPage.out{
+  display:flex;pointer-events:none;animation:ovlOut var(--dur-layer) var(--ease-in) both}
 /* ⑤ 顶部栏与底部按钮条：随屏幕一起淡入，避免「先跳出来再归位」 */
-.screen.on .topbar{animation:scIn .28s cubic-bezier(.16,1,.3,1) both}
-.screen.on .foot{animation:scIn .32s cubic-bezier(.16,1,.3,1) both}
-/* ⑥ 尊重系统「减少动态效果」设置（无障碍） */
+.screen.on .topbar{animation:scIn var(--dur-layer) var(--ease-out) both}
+.screen.on .foot{animation:scIn var(--dur-page) var(--ease-out) both}
+
+/* ============================================================
+ * ⑥ 手感与细节打磨（纯 CSS）
+ * ------------------------------------------------------------
+ * 三条硬规矩：
+ *   ① 不碰任何 display / 类名切换逻辑 —— 按钮点开什么、怎么点开，一概不动；
+ *   ② 动效只走 transform 与 opacity，不触发布局重排，连点与滚动不会被拖慢；
+ *   ③ 时长与缓动统一取 --dur-* / --ease-* 令牌，全 App 节奏一致。
+ * ============================================================ */
+:root{
+  /* 缓动三支（对应：默认 / 进入 / 退出）+ 一支弹簧近似。位移一律不许用 linear */
+  --ease:cubic-bezier(.2,0,0,1);              /* 默认：起步轻、收得住 */
+  --ease-out:cubic-bezier(0,0,.2,1);          /* 进入 decelerate */
+  --ease-in:cubic-bezier(.4,0,1,1);           /* 退出 accelerate */
+  /* 跟手回位的弹簧近似：规范给的是 stiffness 320–400 / damping 28–35，
+     换算成阻尼比 ζ≈0.79 —— 几乎临界阻尼、只有约 2% 过冲。
+     CSS 贝塞尔做不到真弹簧（无速度采样），用一支「带一丝回弹」的曲线近似；
+     真要按速度做惯性，得走 WAAPI/JS 逐帧（见 05-main.js 的拖拽回位）。 */
+  --ease-spring:cubic-bezier(.3,1,.35,1.03);
+  /* 旧名别名：既有 20+ 处引用，保留以免漏改 */
+  --ease-soft:var(--ease);
+  --ease-pop:var(--ease-spring);
+  /* 主按钮顶部一道极细高光：让渐变面看起来是「一块有厚度的面」，而不是平涂 */
+  --sheen:inset 0 1px 0 rgba(255,255,255,.22);
+}
+html[data-theme="dark"]{
+  --sheen:inset 0 1px 0 rgba(255,255,255,.14);
+}
+
+/* ⑥-1 按压反馈（手机没有 hover —— press 就是唯一的按下反馈）
+        · 下压 --dur-press(100ms) 立刻到位，绝不等任何动画（规范 80–120ms）；
+        · 松手切回 --dur-micro(180ms) 回弹，落点 scale(.97)（规范 0.96–0.98 区间）；
+        · 只改 duration / timing-function，不改属性列表 —— 松手自然换回慢一档的曲线，
+          「按下急、回弹柔」这一对就是这么来的；
+        · disabled 不缩，免得禁用的按钮看起来还活着。 */
+button{transition:transform var(--dur-micro) var(--ease),background-color var(--dur-micro) var(--ease),
+  border-color var(--dur-micro) var(--ease),color var(--dur-micro) var(--ease),
+  box-shadow var(--dur-micro) var(--ease),opacity var(--dur-press) linear}
+button:active{transform:scale(.97);transition-duration:var(--dur-press);
+  transition-timing-function:var(--ease-out)}
+button:disabled,button:disabled:active{transform:none}
+/* div/span 模拟的可点块：没有 button 元素，手感单独补一套，参数与上面逐字一致 */
+.mbtn,.diff,.tal,#scRec .rccard,#dbList .dbrow,#dbgDb .drow,.chead.tap,.abqq,.swx,
+.li.choiceLi .co button{
+  transition:transform var(--dur-micro) var(--ease),box-shadow var(--dur-micro) var(--ease),
+    background-color var(--dur-micro) var(--ease),border-color var(--dur-micro) var(--ease),
+    color var(--dur-micro) var(--ease),opacity var(--dur-micro) var(--ease)}
+.mbtn:active,.diff:active,.tal:active,#scRec .rccard:active,#dbList .dbrow:active,
+#dbgDb .drow:active,.li.choiceLi .co button:active{transform:scale(.97);
+  transition-duration:var(--dur-press);transition-timing-function:var(--ease-out)}
+.chead.tap:active{opacity:.7}
+.swx:active{transform:scale(.96)}
+/* 键盘 / 外接键鼠走查时的焦点可见性：默认 outline 太糙，换成品牌色细环 */
+button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* ⑥-1b 触摸（WebView 手机 App，单指是唯一主输入）
+        · touch-action:manipulation —— 干掉点按后的 300ms 判定延迟与双击缩放误触，
+          pan / pinch-zoom 仍在，滚动区没有被劫持；
+        · text-size-adjust:100% —— 横竖屏切换后系统不许自动放大正文字号。 */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+button,.swx,.chead.tap,.abqq,.tal,.diff,#dbList .dbrow,#dbgDb .drow,#scRec .rccard,
+.mbtn,.dbrow,.dsel .dopt,.dopt,.mfopt{touch-action:manipulation}
+/* 边缘右滑返回要接住横向手势，竖向滚动必须原样放行 —— 只对 .screen 声明 pan-y。
+   数据页那条横向滚动的分段条 .dbseg 不在 .screen 里，滑它照常有效。 */
+.screen{touch-action:pan-y pinch-zoom}
+
+/* ⑥-1c 热区 ≥48×48dp：视觉尺寸一个都不改，只加一层透明 ::after 把可点范围撑大。
+        这层不参与布局 —— 没有 CLS，也不会挤动相邻元素（规范：视觉可小、热区要大）。
+        两处「不能无脑外扩」的地方已单独处理：
+        · 加点行 − / ＋ 只朝外侧扩，中间留出 8dp 空档（防误触）；
+        · 卡片头下方紧挨着输入框，用 ::after 会盖住控件，改走内边距方案（见下）。 */
+.topbar .tb,.astep,.swx,#modal .bar .bk{position:relative}
+.topbar .tb::after,#modal .bar .bk::after,.swx::after{
+  content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:max(100%,48px);height:max(100%,48px)}
+.astep::after{content:'';position:absolute;top:50%;transform:translateY(-50%);height:48px}
+.astep.minus::after{left:-6px;right:0}
+.astep:not(.minus)::after{left:0;right:-6px}
+/* 本体已经接近 48 的：补一条 min-height 就够（视觉几乎不动，热区一次达标） */
+.btn,#playbar .pb,#endbar .pb,#dbPage .dbseg button,#modal .seg button,
+#modal .acts button,#dbPage .acts button,#dbgPage .acts button,#modal .btns button,
+.dsel .dopt,.dopt,#dbPage .mfopt,.li.choiceLi .co button,
+#dbList .dbrow,#dbgDb .drow,.dbrow{min-height:48px}
+/* 卡片头 = 折叠开关，但正下方就是输入框 —— ::after 会抢掉输入框顶边的点击，
+   所以改用「上下内边距 + 负外边距」抵消：热区 22→38px，版式一个像素都不动。 */
+.chead.tap{padding:var(--sp-4) 0;margin-top:calc(-1 * var(--sp-4));
+  margin-bottom:calc(var(--sp-6) - var(--sp-4))}
+/* 加点行 − / ＋ 间距 6→8px：热区各外扩 6px 之后，中间仍留 8dp 空档 */
+.arow{gap:var(--sp-4)}
+
+/* ⑥-2b 折叠卡展开：内容随淡入带出，不「啪」地整块蹦出来。
+        开合逻辑一个字没动 —— 仍是 display 的 none ↔ 默认值切换，
+        只是在「显示」那一帧叠 260ms 的 fade + 4px 上移（规范 4.3 的展开/折叠）。
+        折叠方向保留为瞬间收起：要做高度过渡就得引入第二套状态（height/grid + 定时器），
+        会和现有 foldToggle 的显示断言打架，风险大于收益，故只做进场方向。 */
+@keyframes unfoldIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+#modal .card:not(.fold) > *:not(.chead),
+#dbgPage .card:not(.fold) > *:not(.chead),
+#dbPage .card:not(.fold) > .cbody,
+#dbList .dbcard:not(.fold) > .cbody,
+#dbgDb .dsrcc:not(.fold) > .cbody{animation:unfoldIn var(--dur-layer) var(--ease-out) both}
+
+/* ⑥-2c 省电 / 切后台：装饰性动画只在「前台且电量健康」时跑。
+        html.quiet 由 visibilitychange 打开（进后台），html.eco 由电量 ≤15% 且未充电时打开。
+        保留的是必须的反馈动画（按压、开关），关掉的是纯装饰（扫光、脉冲、错峰、入场位移）。 */
+html.quiet #bootPage .bbar i,html.quiet #bootPage .bdots s,html.quiet .tkpbar i,
+html.eco #bootPage .bbar i,html.eco #bootPage .bdots s,html.eco .tkpbar i{
+  transition:none;animation:none}      /* 进度条瞬间到位、开机点不再脉冲 */
+html.quiet #bootPage .bbar::after,html.eco #bootPage .bbar::after,
+html.quiet #tkProg .tkpbar::after,html.eco #tkProg .tkpbar::after{animation:none}
+html.quiet #scMenu.on .logo .lg1,html.quiet #scMenu.on .logo .lg2,
+html.quiet #scMenu.on .logo .sub,html.quiet #scMenu.on .menu-list .mbtn,
+html.quiet .screen.on .card,html.quiet .screen.on .page,html.quiet .screen.on .topbar,
+html.quiet .screen.on .foot,html.quiet #modal .card:not(.fold) > *:not(.chead),
+html.eco #scMenu.on .logo .lg1,html.eco #scMenu.on .logo .lg2,
+html.eco #scMenu.on .logo .sub,html.eco #scMenu.on .menu-list .mbtn,
+html.eco .screen.on .card,html.eco .screen.on .page,html.eco .screen.on .topbar,
+html.eco .screen.on .foot,html.eco #modal .card:not(.fold) > *:not(.chead){
+  animation:ovlIn .16s linear both}   /* 降级成纯淡入：不位移、不交错、线性收尾 */
+
+/* ⑥-3 关键帧：只用 transform / opacity */
+@keyframes dropIn{from{opacity:0;transform:translateY(-8px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes chipPop{0%{transform:scale(.96)}60%{transform:scale(1.02)}100%{transform:none}}
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,8px) scale(.96)}
+  to{opacity:1;transform:translate(-50%,0) scale(1)}}
+@keyframes rankIn{0%{opacity:0;transform:scale(.82)}60%{opacity:1;transform:scale(1.04)}100%{transform:none}}
+@keyframes logoIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes sweep{from{transform:translateX(-120%)}to{transform:translateX(380%)}}
+/* 下拉面板：打开时向下「展开」，而不是凭空出现（只加动画，display 切换一点没动） */
+.dsel.on .dpanel,#dbPage .modebar.on .mfdrop{animation:dropIn var(--dur-slow) var(--ease-out)}
+/* 选中态的一次性小弹跳：天赋卡 / 难度块 / 分段按钮被选中那一帧轻轻弹一下。
+   不用 fill-mode —— 动画结束要把 transform 还给 :active，否则按下去就不缩了。 */
+.tal.sel{animation:chipPop .3s var(--ease-pop)}
+.diff.on,#modal .seg button.on,#dbPage .dbseg button.on{animation:chipPop .28s var(--ease-pop)}
+/* 吐司：比原来多一点「轻轻落下」的重量 */
+#toast.on{animation:toastIn var(--dur-slow) var(--ease-pop) both}
+/* 结算评级大字：进场时稍微放大再收住，配合所在卡片的上浮 */
+#scOver.on .rank{animation:rankIn .55s var(--ease-pop) backwards}
+/* 主菜单：标题分三段、菜单按钮逐个入场。每次回到主页都会重播，像「重新翻开」。
+   用 backwards：延迟期间先按起始态藏住，动画一结束就交还样式，
+   这样按压反馈（:active 的缩放）不会被动画的结束态永久占住。 */
+#scMenu.on .logo .lg1{animation:logoIn .45s var(--ease-out) backwards}
+#scMenu.on .logo .lg2{animation:logoIn .45s .06s var(--ease-out) backwards}
+#scMenu.on .logo .sub{animation:logoIn .4s .14s var(--ease-out) backwards}
+#scMenu.on .menu-list .mbtn{animation:cardIn .4s var(--ease-out) backwards}
+#scMenu.on .menu-list .mbtn:nth-child(1){animation-delay:.10s}
+#scMenu.on .menu-list .mbtn:nth-child(2){animation-delay:.14s}
+#scMenu.on .menu-list .mbtn:nth-child(3){animation-delay:.18s}
+#scMenu.on .menu-list .mbtn:nth-child(4){animation-delay:.22s}
+#scMenu.on .menu-list .mbtn:nth-child(5){animation-delay:.26s}
+#scMenu.on .menu-list .mbtn:nth-child(n+6){animation-delay:.30s}
+
+/* ⑥-4 主按钮顶部高光：渐变面加一道极细的受光边 */
+.mbtn.pri,.btn.pri,#playbar .pb.main,#endbar .pb.main{box-shadow:var(--sheen),var(--sh-glow)}
+.mbtn.pri{box-shadow:var(--sheen),var(--sh-glow-lg)}
+
+/* ⑥-5 开关：位移只走 transform（不再动画 left —— 规范禁止对 left/width 这类
+       会触发布局的属性做动画）。基准位置仍是 CSS 里写死的 left:2px，
+       开 = 平移 22px（24 - 2），完全等价于原来 left:2 → 24 的位移。
+       按下先压缩、松手回弹，全在同一条 transform 里完成，可被打断。 */
+.swx i{transition:transform var(--dur-micro) var(--ease-spring),
+  background-color var(--dur-micro) var(--ease)}
+.swx:active i{transform:translateX(0) scale(.92)}
+.swx.on i{left:2px;transform:translateX(22px) scale(1.04);background:var(--onAcc)}
+.swx.on:active i{transform:translateX(22px) scale(.96)}
+
+/* ⑥-6 滑杆：原生 accent-color 在深色主题下发灰，这里自绘轨道与圆钮 */
+#modal input[type=range]{-webkit-appearance:none;appearance:none;height:28px;background:none;accent-color:auto}
+#modal input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:var(--r-pill);
+  background:var(--soft);border:1px solid var(--line)}
+#modal input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;
+  border-radius:50%;background:var(--grad2);border:2px solid var(--card);
+  box-shadow:0 1px 4px rgba(0,0,0,.28);margin-top:-9px;cursor:pointer;
+  transition:transform var(--dur-micro) var(--ease-spring),box-shadow var(--dur-micro) var(--ease)}
+#modal input[type=range]::-webkit-slider-thumb:active{transform:scale(1.12)}
+#modal input[type=range]::-moz-range-track{height:6px;border-radius:var(--r-pill);
+  background:var(--soft);border:1px solid var(--line)}
+#modal input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;
+  background:var(--acc2);border:2px solid var(--card);cursor:pointer}
+
+/* ⑥-7 读条：进度条上加一道来回扫过的高光，等待时能看出「在跑」 */
+#bootPage .bbar,#tkProg .tkpbar{position:relative}
+#bootPage .bbar::after,#tkProg .tkpbar::after{content:'';position:absolute;top:0;bottom:0;left:0;width:38%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.5),transparent);
+  animation:sweep 1.6s ease-in-out infinite;pointer-events:none}
+
+/* ⑥-8 细滚动条：桌面上的粗滚动条很出戏。
+        只在「比手机宽」的屏幕（平板 / 桌面预览）上生效 —— 手机 WebView 的滚动条
+        是浮层式、不占宽度，强行改写反而可能把它变成常驻窄条，挤掉 6px 可视宽度。 */
+@media (min-width:561px){
+  *{scrollbar-width:thin;scrollbar-color:rgba(120,124,160,.40) transparent}
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:rgba(120,124,160,.40);border-radius:var(--r-pill);
+    border:1px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:rgba(120,124,160,.62);background-clip:content-box}
+}
+
+/* ⑥-9 整屏子页（数据管理 / 关于 / 调试 / 完整数据库 / 开机页）此前是「啪」地出现，
+        这里补一次淡入 + 内容上浮。
+        必须排在上面的 .out（退出动画）之后：重开时 .on 要压过还没清掉的 .out，
+        否则会反过来播一遍「退出」动画。 */
+#dbPage.on,#aboutPage.on,#dbgPage.on,#dbgDb.on,#bootPage.on{
+  animation:ovlIn var(--dur-slow) var(--ease-out) both}
+#dbPage.on .page,#aboutPage.on .page,#dbgPage.on .page,#dbgDb .page{
+  animation:scIn var(--dur-page) var(--ease-out) both}
+#bootPage.on .btitle,#bootPage.on .bpct,#bootPage.on .btip,#bootPage.on .bdots{
+  animation:scIn var(--dur-slow) var(--ease-out) backwards}
+
+/* ⑦ 尊重系统「减少动态效果」设置（无障碍） */
 @media (prefers-reduced-motion:reduce){
   /* 全量关闭动效：屏幕/页面/卡片/顶栏/底栏、弹窗、死亡卡、开机点、
      以及所有 transition（按钮、开关、下拉、toast、进度条等）。 */
   *,*::before,*::after{animation:none!important;transition:none!important}
-  /* 按压反馈属动效，一并复位为「不动」 */
-  .btn:active,.tb:active,.pb:active,.dsel .dval:active,
-  #playbar .pb:active,#endbar .pb:active{transform:none!important}
+  /* 按压反馈属动效，一并复位为「不动」（覆盖 button 与 div 型可点块两套） */
+  button:active,.mbtn:active,.diff:active,.tal:active,#scRec .rccard:active,
+  #dbList .dbrow:active,#dbgDb .drow:active,.li.choiceLi .co button:active,
+  .swx:active{transform:none!important}
 }
 
 /* ==================== 内联样式收口（原 index.html 内联 style → 语义类） ====================
    原则：只声明原先内联的那几个属性，不合并进既有类，避免牵连其它元素。 */
-.modeCol{margin-top:14px;display:flex;flex-direction:column;gap:12px}
+.modeCol{margin-top:var(--sp-7);display:flex;flex-direction:column;gap:var(--sp-6)}
 .mbtn.off{opacity:.5}
 .page-talent{padding-bottom:calc(120px + env(safe-area-inset-bottom))}
 .page-attr{padding-bottom:calc(126px + env(safe-area-inset-bottom))}
 .page-play{padding-bottom:calc(122px + env(safe-area-inset-bottom))}
-.page-flat{padding-bottom:40px}
-.chead.tight{margin-bottom:6px}
+.page-flat{padding-bottom:calc(var(--sp-13) + env(safe-area-inset-bottom))}
+.chead.tight{margin-bottom:var(--sp-3)}
 .note.ctr{text-align:center}
 .note.acc{color:var(--acc);font-weight:600}
-.note.mt9{margin-top:9px}
+.note.mt9{margin-top:var(--sp-4)}
 .flr{float:right}
 .stsub{font-weight:400;color:var(--dim)}
 .tb.hid{visibility:hidden}
 .sw.tap{cursor:pointer}
 /* 通用间距类：不依赖容器作用域（.acts/.fm 本身无 margin-top，不会冲突） */
-.acts.mt6{margin-top:6px}
-.acts.mt10{margin-top:10px}
-.acts.mt12{margin-top:12px}
-.fm.mt16{margin-top:16px}
+.acts.mt6{margin-top:var(--sp-3)}
+.acts.mt10{margin-top:var(--sp-5)}
+.acts.mt12{margin-top:var(--sp-6)}
+.fm.mt16{margin-top:var(--sp-8)}
 /* 这条须压过 #modal .sw 的既有同属性规则，故带作用域前缀 */
-#modal .sw.plain{border-bottom:none;padding:8px 0}
-/* 同理：#dbPage .acts{margin-top:10px} 会盖掉通用类，此处按作用域补回 */
-#dbPage .acts.mt12{margin-top:12px}
+#modal .sw.plain{border-bottom:none;padding:var(--sp-4) 0}
+/* 同理：#dbPage .acts{margin-top:var(--sp-5)} 会盖掉通用类，此处按作用域补回 */
+#dbPage .acts.mt12{margin-top:var(--sp-6)}
+
+/* ==================== 大屏 / 横屏适配 ====================
+   这个 App 是 WebView 壳，主要跑在手机上，所以窄屏（≤560px）是主场景，
+   下面几条只在「比手机宽」或「横过来」时才生效，不改变手机上的任何表现。
+
+   为什么要做：原先 #app 死钉 max-width:560px 且没有任何断点，
+   在平板 / 折叠屏展开 / 横屏下会是一条居中的窄长条，两侧大片留白，
+   而顶栏和底部按钮条又是 fixed 全宽定位 —— 视觉上割裂。 */
+@media (min-width:561px){
+  /* 宽屏下把内容放宽一点，并把圆角与内边距同步放大，
+     避免「卡片还是手机尺寸、但外面框变大了」的不协调。 */
+  :root{ --app-w:600px; --r-xl:18px; }
+  .page{padding-left:var(--sp-9);padding-right:var(--sp-9)}
+  body{font-size:var(--fs-lg)}
+}
+/* 横屏 / 矮屏：竖向空间紧张，压缩顶部常驻区与底部按钮条的留白，
+   把有限的高度让给日志区。 */
+@media (orientation:landscape) and (max-height:520px){
+  .topbar{padding-top:var(--sp-3);padding-bottom:var(--sp-3)}
+  .playStatus{padding-top:var(--sp-3);padding-bottom:var(--sp-4)}
+  .foot{padding-top:var(--sp-3);padding-bottom:calc(4px + env(safe-area-inset-bottom))}
+  /* 横屏下底部让位不需要那么高（安全区在左右两侧，不在下方） */
+  .page{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
+  .page-talent{padding-bottom:calc(80px + env(safe-area-inset-bottom))}
+  .page-attr{padding-bottom:calc(86px + env(safe-area-inset-bottom))}
+  .page-play{padding-bottom:calc(82px + env(safe-area-inset-bottom))}
+  .page-flat{padding-bottom:var(--sp-12)}
+}

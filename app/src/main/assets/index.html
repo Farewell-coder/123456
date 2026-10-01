@@ -275,6 +275,11 @@
           </div>
           <div class="dsel hide" id="cfgModelSel"><button class="dval"></button><div class="dpanel"></div></div>
         </div>
+        <div class="fm">
+          <div class="lb2">用量统计</div>
+          <div class="hint">查看本机 AI 请求消耗的 Token、缓存命中与每日趋势</div>
+          <button class="note acc" id="btnTkuStat">▤ 查看 Token 消耗统计</button>
+        </div>
         <p class="note" id="modelNote">Key 以明文保存在本机（导出时可选择打码），请勿在共享设备上使用，也勿导出含密钥的文件外发。</p>
       </div>
 
@@ -309,17 +314,17 @@
           <div class="hint">推进年份时的提示音</div>
           <input type="range" id="cfgVol" min="0" max="100" step="10">
         </div>
+        <div class="sw"><div><div class="st">触感反馈</div>
+          <div class="sd">点按、选中、切换时轻震一下；不支持震动的设备自动忽略</div></div>
+          <div class="swx" id="cfgHap"><i></i></div></div>
         <!-- spdSeg 隐藏，保持默认 420 -->
         </div>
 
       <div class="card" data-ck="save">
         <div class="chead tap"><span class="dot"></span>存档管理<span class="arw">▾</span></div>
         <div class="fm">
-          <div class="lb2">备份目录</div>
-          <div class="hint">导出/备份的 json 落到哪里。当前：<span id="dirNow">未选择（暂存「下载」）</span></div>
-          <div class="acts mt10">
-            <button class="ghost" id="btnDir">选择备份目录</button>
-          </div>
+          <div class="lb2">保存位置</div>
+          <div class="hint">导出时会弹出系统「另存为」对话框，可当场选择保存目录与文件名，无需提前设置。</div>
         </div>
         <div class="fm">
           <div class="lb2">导出本地存档</div>
@@ -390,9 +395,52 @@
       <div class="abrows">
         <div class="abrow"><span class="abk">作者</span><span class="abv" id="abAuthor">—</span></div>
         <div class="abrow"><span class="abk">反馈群</span><span class="abv"><span class="abqq" id="abQQ" title="点击复制群号">—</span></span></div>
-        <div class="abrow"><span class="abk">版本</span><span class="abv"><b id="abVer">v0.0.2</b></span></div>
+        <div class="abrow"><span class="abk">版本</span><span class="abv"><b id="abVer">v0.0.3</b></span></div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ==================== Token 消耗统计（设置 → API 设置 入口） ==================== -->
+<div id="tkPage">
+  <div class="topbar">
+    <button class="tb" id="tkuBack"><svg class="ic" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+    <div class="tt">Token 消耗统计<small>本机 AI 请求用量</small></div>
+    <button class="tb hid" id="tkuPh">·</button>
+  </div>
+  <div class="page page-flat">
+    <div class="tku-top">
+      <div class="tku-seg" id="tkuSeg">
+        <button data-t="day" class="on">每日</button>
+        <button data-t="week">每周</button>
+        <button data-t="all">累计</button>
+      </div>
+      <div class="tku-date" id="tkuDateWrap">
+        <button class="tku-nav" id="tkuPrev" aria-label="往前">‹</button>
+        <button class="tku-dbtn" id="tkuDateBtn"><span id="tkuDateTx">—</span><svg class="tku-cal" viewBox="0 0 24 24"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg></button>
+        <button class="tku-nav" id="tkuNext" aria-label="往后">›</button>
+        <input type="date" id="tkuDateIn" class="tku-din">
+      </div>
+    </div>
+
+    <div class="card tku-ov">
+      <div class="tku-ohead">
+        <span class="tku-ot">周期总览</span>
+        <span class="tku-pills" id="tkuPills"></span>
+      </div>
+      <div class="tku-big"><b id="tkuTotal">0</b><span>Token</span></div>
+      <div class="tku-cost">总费用 <b id="tkuCost">¥0.00</b><button class="tku-price" id="tkuPrice">设置单价</button></div>
+      <div class="tku-chart" id="tkuChart"></div>
+      <div class="tku-cap" id="tkuCap">—</div>
+    </div>
+
+    <div class="tku-grid">
+      <div class="tku-stat"><i class="tku-icw"><svg class="tku-ic" viewBox="0 0 24 24"><path d="M4 16l5-5 3.5 3.5L20 7"/><path d="M15 7h5v5"/></svg></i><div><div class="k">峰值 Token</div><div class="v" id="tkuPeak">0</div></div></div>
+      <div class="tku-stat"><i class="tku-icw"><svg class="tku-ic" viewBox="0 0 24 24"><path d="M3 12h4l2.5-7 4 14 2.5-7H21"/></svg></i><div><div class="k">总请求次数</div><div class="v" id="tkuReq">0</div></div></div>
+      <div class="tku-stat"><i class="tku-icw"><svg class="tku-ic" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 3v9h9"/></svg></i><div><div class="k">缓存率</div><div class="v" id="tkuCache">0%</div></div></div>
+      <div class="tku-stat"><i class="tku-icw"><svg class="tku-ic" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg></i><div><div class="k">输出</div><div class="v" id="tkuOut">0</div></div></div>
+    </div>
+    <p class="note">只统计本机发起的 AI 请求；接口未返回用量时按文本长度估算。数据仅保存在这台设备上，清除本地数据会一并清空。</p>
   </div>
 </div>
 
@@ -404,56 +452,68 @@
     <button class="tb" id="dbgRefresh"><svg class="ic" viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-8 8s3.58 8 8 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
   </div>
   <div class="page page-flat">
-    <div class="card">
-      <div class="chead"><span class="dot"></span>运行概览</div>
+    <!-- 运行概览（默认展开） -->
+    <div class="card" data-ck="dgOverview" data-def="open">
+      <div class="chead tap"><span class="dot"></span>运行概览<span class="arw">▾</span></div>
       <div id="dbgBody"></div>
     </div>
-    <div class="card">
-      <div class="chead"><span class="dot"></span>悬浮球</div>
+    <!-- 错误日志（默认展开）：只收录报错，带文件 / 行 / 列 / 调用栈 -->
+    <div class="card errcard" data-ck="dgErrors" data-def="open">
+      <div class="chead tap"><span class="dot"></span>错误日志<span class="cnt" id="dbgErrCnt"></span><span class="arw">▾</span></div>
+      <p class="note">只收录运行期捕获的报错（脚本异常 / Promise 未处理 / console.error / 资源加载失败）。每条都标出出错的文件、行、列与调用栈，可直接定位。</p>
+      <div class="dbglog err" id="dbgErr">（暂无错误）</div>
+      <div class="acts">
+        <button id="dgErrCopy">复制错误日志</button>
+        <button class="ghost" id="dgErrClear">清空错误日志</button>
+      </div>
+    </div>
+    <!-- 运行日志 -->
+    <div class="card" data-ck="dgRunlog">
+      <div class="chead tap"><span class="dot"></span>运行日志<span class="arw">▾</span></div>
+      <p class="note">按时间记录的关键动作（打开面板、切换无敌、AI 调用、错误等）。排查时先看错误日志，再看这里。</p>
+      <div class="dbglog" id="dbgLog">（空）</div>
+      <div class="acts">
+        <button class="ghost" id="dgLog">清空运行日志</button>
+      </div>
+    </div>
+    <!-- 悬浮球 -->
+    <div class="card" data-ck="dgFloatCard">
+      <div class="chead tap"><span class="dot"></span>悬浮球<span class="arw">▾</span></div>
       <p class="note">在任意界面常驻一个小球，点一下就能展开调试面板、开无敌模式，或者直接结束这一局。</p>
       <div class="sw tap" id="dgFloatRow">
         <div><div class="st">启用悬浮球</div><div class="sd" id="dgFloatTip">在任意界面快速打开调试与无敌模式</div></div>
         <div class="swx" id="dgFloat"><i></i></div>
       </div>
     </div>
-    <div class="card">
-      <div class="chead"><span class="dot"></span>运行日志</div>
-      <div class="dbglog" id="dbgLog">（空）</div>
-    </div>
-    <div class="card">
-      <div class="chead"><span class="dot"></span>完整数据库</div>
+    <!-- 完整数据库 -->
+    <div class="card" data-ck="dgDbCard">
+      <div class="chead tap"><span class="dot"></span>完整数据库<span class="arw">▾</span></div>
       <p class="note">调试专用：进去后能同时看到「本地内置」与「导入 / AI 加入」的全部数据（数据管理页看不到本地条目，这里看得到）。只看不改。</p>
       <div class="acts">
         <button id="dbgDbOpen">打开数据库</button>
       </div>
     </div>
-
-    <div class="card">
-      <div class="chead"><span class="dot"></span>导出诊断</div>
-      <p class="note">把运行概览、日志、本地存档快照打成一个 zip，交给开发者排查。压缩包不包含 API 密钥。</p>
+    <!-- 导出诊断 -->
+    <div class="card" data-ck="dgExpCard">
+      <div class="chead tap"><span class="dot"></span>导出诊断<span class="arw">▾</span></div>
+      <p class="note">把运行概览、错误日志、运行日志、本地存档快照打成一个 zip，交给开发者排查。导出时会弹出系统「另存为」让你选择保存位置。压缩包不包含 API 密钥。</p>
       <div class="acts">
         <button id="dbgCopy">复制文本</button>
         <button class="ghost" id="dbgZip">导出压缩包</button>
       </div>
     </div>
-    <div class="card danger">
-      <div class="chead"><span class="dot"></span>危险区</div>
+    <!-- 危险区（默认收起） -->
+    <div class="card danger" data-ck="dgDangerCard">
+      <div class="chead tap"><span class="dot"></span>危险区<span class="arw">▾</span></div>
       <p class="note">下面这些按钮会直接改动运行状态，仅在排查问题时使用。除「强制走本地事件」外，其余按钮只影响本次运行，退出重开即自动恢复。</p>
+      <p class="note">「一键全成就 / 清空成就」会直接改写图鉴存档（成就、通关次数、天赋、标签、最长寿命），清空后不可恢复。</p>
       <p class="note" id="dgNow"></p>
-      <div class="sw tap" id="dgDevRow">
-        <div><div class="st">无敌模式</div><div class="sd">必定活到 200 岁 · 无限开局点数 · 可随时结束这一局</div></div>
-        <div class="swx" id="dgDev"><i></i></div>
-      </div>
-      <div class="dacts" id="dgDevActs">
-        <button id="dgEndLife">立即结束这一局</button>
+      <div class="dacts">
         <button id="dgAchAll">一键全成就</button>
         <button id="dgAchClear">清空成就</button>
-      </div>
-      <div class="dacts">
         <button id="dgFails">重置 AI 失败计数</button>
         <button id="dgQueue">清空事件队列</button>
         <button id="dgLocal">强制走本地事件</button>
-        <button id="dgLog">清空运行日志</button>
         <button id="dgClick">重置连点计数</button>
         <button id="dgState">打印当前状态</button>
       </div>
@@ -505,6 +565,17 @@
 
 <!-- 自定义输入弹窗（游戏风格，替代原生 prompt） -->
 <div id="dlgI" class="hide"></div>
+
+<!-- ==================== 文本体检进度框 ==================== -->
+<div id="tkProg">
+  <div class="dc">
+    <h3 id="tkpTitle">文本体检</h3>
+    <p id="tkpDesc"></p>
+    <div class="tkpbar"><i id="tkpBar"></i></div>
+    <div class="tkpmeta"><span id="tkpPct">0%</span><span id="tkpStat"></span></div>
+    <div class="da" id="tkpActs"></div>
+  </div>
+</div>
 
 <!-- 事件分支选择不再有浮层容器：选项直接内联进日志流（见 doChoice） -->
 
@@ -564,16 +635,14 @@
       </div>
     </div>
     <div class="card" data-ck="db-tk">
-      <div class="chead tap"><span class="dot"></span>文本体检<span class="arw">▾</span>
-        <button class="tkrun" id="dbTkRun">开始体检</button></div>
+      <div class="chead tap"><span class="dot"></span>文本体检<span class="arw">▾</span></div>
       <div class="cbody">
         <p class="note">一站式处理你自己条目的两件事：检查内容是否重复，以及标注每条事件偏向哪项属性。</p>
         <div class="tkgrid" id="tkStat"></div>
+        <p class="note mt9">点下方「开始体检」一步跑完：<b>① 重复检测</b>（意思相同即算重复，命中后只删你那一条，删前逐条确认）→ <b>② 同步偏向</b>（给还没分类的条目做分类：判定它讲的是哪一项隐藏能力，并算出它要求角色具备多少分才会发生）。全程有进度条，可随时取消。</p>
         <div class="acts mt12">
-          <button id="dbDedup"><span class="abt">重复检测</span><span class="abd">找出内容重复的条目</span></button>
-          <button class="ghost" id="dbAffFill"><span class="abt">同步偏向</span><span class="abd">对未分类条目做分类（AI 优先，规则兜底）</span></button>
+          <button id="dbTkRun"><span class="abt">开始体检</span><span class="abd">查重 + 同步偏向，一步跑完</span></button>
         </div>
-        <p class="note mt9">点右上角「开始体检」一步跑完：<b>① 重复检测</b>（意思相同即算重复，命中后只删你那一条，删前逐条确认）→ <b>② 同步偏向</b>（给还没分类的条目做分类：判定它讲的是哪一项隐藏能力，并算出它要求角色具备多少分才会发生）。也可以只用下面某一个按钮分步处理。</p>
       </div>
     </div>
   </div>

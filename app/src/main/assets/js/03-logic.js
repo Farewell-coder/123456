@@ -23,6 +23,9 @@ function applyEffect(e, silent){
   if(!e) return [];
   const h = hooks();
   const out = [];
+  /* v0.0.3：这次效果的整体基调（主属性净增减），事件结算完记一次，
+     供 toneMul 统计「一生正面 : 负面」的实际配比。 */
+  const netTone = effNet(e);
   /* 退役键（情商 / 意志力 / 心理健康）：不再写进主属性表。
      它们已并入 7 大类，界面永不显示；继续写进去只会累积成不可见的脏数据
      （老库里 455 条事件的 effects 带着这三个键）。改成按语义落点记成子项 Δ。 */
@@ -68,6 +71,8 @@ function applyEffect(e, silent){
     /* 需求 9：属性增益权重整体上调到 3 倍（v0.0.2：由 1.5 倍再翻倍）。
        只抬正向收益，惩罚保持原样 —— 两边一起放大只会让曲线更陡，不是想要的。 */
     if(v > 0) v *= 3;
+    /* v0.0.3：难度负面衰减 —— 越简单的档位，坏事打在属性上越轻（negDamp ≤ 1） */
+    if(v < 0) v *= negDamp();
     v = softAttr(k, v);
     /* 抑郁症的额外惩罚：作用于本条事件的负收益。
        注意 k 只会是 S.attr 里的七个主属性（隐藏四项与 35 子项在这里进不来），
@@ -80,6 +85,7 @@ function applyEffect(e, silent){
     if(!silent) S.yearAttr[k] = (S.yearAttr[k] || 0) + 1;
     out.push(k + (v > 0 ? '+' : '') + (Math.round(v * 10) / 10));
   });
+  if(!silent) recordTone(netTone);
   return out;
 }
 function addTag(t){
@@ -146,14 +152,17 @@ function pushLog(age, text, kind, delta, src){
   scrollLogToEnd();
 }
 /* 新增日志后把滚动条拉到最底。等一帧再滚：新节点刚插入时浏览器可能还没算完高度，
-   立刻设 scrollTop 往往滚不到位，表现就是「视角不跟着新日志走」。 */
+   立刻设 scrollTop 往往滚不到位，表现就是「视角不跟着新日志走」。
+   【流畅度】去掉同步那次 scrollTop 赋值 —— 它会强制一次同步布局（reflow），
+   在日志很长、低端机上每条事件都触发一次，是掉帧来源之一。只保留 rAF 那次。 */
 function scrollLogToEnd(){
   const pg = $('#playPage');
   if(!pg) return;
-  pg.scrollTop = pg.scrollHeight;
   try{
     if(window && typeof window.requestAnimationFrame === 'function'){
       window.requestAnimationFrame(() => { pg.scrollTop = pg.scrollHeight; });
+    }else{
+      pg.scrollTop = pg.scrollHeight;
     }
   }catch(e){}
 }
@@ -177,7 +186,7 @@ async function callAIOnce(p, messages, maxTokens, contentOnly, useNoThink){
   const body = {model:p.model, messages, temperature:1.0, max_tokens:maxTokens || 900};
   if(useNoThink) body.thinking = {type:'disabled'};
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 40000);
+  const timer = setTimeout(() => ctl.abort(), AI_TIMEOUT_MS);
   try{
     const r = await fetch(url, {
       method:'POST',
@@ -203,32 +212,61 @@ async function callAIOnce(p, messages, maxTokens, contentOnly, useNoThink){
     let out = (typeof m.content === 'string') ? m.content : '';
     if(!out && !contentOnly && typeof m.reasoning_content === 'string') out = m.reasoning_content;
     if(!out && ch.finish_reason === 'length') throw new Error('模型输出被长度截断');
+    /* Token 用量统计：接口给了 usage 就记真实值，没给就按字符数估算。
+       放在这里而不是调用方，是为了把「被截断重试」这类成功的 HTTP 请求也一并算上。 */
+    try{ tkRecord(d.usage, messages, out); }catch(e){}
     return stripThink(out);
+  }catch(e){
+    /* 超时单独标出来：调用方据此决定「换更长预算重试」还是「干脆别重试」 */
+    if(e && (e.name === 'AbortError' || /abort/i.test(String(e.message || '')))) throw new Error('AI 请求超时');
+    throw e;
   } finally { clearTimeout(timer); }
+}
+/* 【重试策略】以前是「不管什么错都拿双倍预算再问一次」：
+   ① 超时也翻倍预算 —— 本来就要等 40 秒，翻倍后更慢，玩家读条直接卡死；
+   ② 服务端 429 / 5xx 也重试 —— 供应商明确说「别急」，再问一次只是白烧 token；
+   ③ 端点写错（404 / 401）也重试 —— 永远不可能成功。
+   现在按错误类型分流：参数不兼容 → 摘掉 thinking 重来；被截断 → 抬预算；
+   超时 → 同预算重试一次；其它一律不重试，把错误原样交给上层兜底。 */
+function aiErrKind(msg){
+  const m = String(msg || '');
+  if(/^HTTP 401|^HTTP 403/.test(m)) return 'auth';
+  if(/^HTTP 404/.test(m)) return 'notfound';
+  if(/^HTTP 429/.test(m)) return 'busy';
+  if(/^HTTP 5\d\d/.test(m)) return 'server';
+  if(/超时/.test(m)) return 'timeout';
+  if(/截断|length/.test(m)) return 'truncated';
+  if(/^HTTP 4\d\d/.test(m)) return 'badreq';
+  return 'other';
 }
 async function callAI(messages, maxTokens, contentOnly){
   const c = getCfg(), p = curProf(c);
   const tk = maxTokens || 900;
-  let firstErr = null;
   /* 全局并发闸门放在这里（而不是只放在 runTasks）：整局预生成 / 队列补货 / 生成人生大纲 /
      墓志铭 / 悬浮窗问答 / 死亡总结 全都要先抢槽位，任意时刻真正在飞的请求数
      硬性 ≤ AI_CONCURRENCY，各路径不会互相叠加把接口打爆。 */
   await takeSlot();
   try{
+    let e1 = null;
     try{
       return await callAIOnce(p, messages, tk, contentOnly, true);
-    }catch(e1){
-      firstErr = e1;
-      const msg = String((e1 && e1.message) || '');
-      /* 兼容性兜底：个别供应商不认 thinking 参数会直接 400，去掉它再试一次 */
-      if(/^HTTP 4\d\d/.test(msg) && /thinking|reasoning|invalid|unknown|param/i.test(msg)){
-        try{ return await callAIOnce(p, messages, tk, contentOnly, false); }
-        catch(e2){ firstErr = e2; }
-      }
-      /* 其它失败（超时 / 被截断 / 空返回）：放大预算重试一次 */
-      try{ return await callAIOnce(p, messages, Math.min(tk * 2, 4000), contentOnly, false); }
-      catch(e3){ throw (e3 || firstErr); }
+    }catch(err){ e1 = err; }
+    const msg = String((e1 && e1.message) || '');
+    const kind = aiErrKind(msg);
+    /* ① 供应商不认 thinking / reasoning 参数 → 摘掉它重来（唯一值得为「参数」重试的情况） */
+    if(kind === 'badreq' && /thinking|reasoning|invalid|unknown|param/i.test(msg)){
+      return await callAIOnce(p, messages, tk, contentOnly, false);
     }
+    /* ② 被长度截断 → 这次是真的预算不够，抬到 1.6 倍再来（不翻倍，够用就行） */
+    if(kind === 'truncated'){
+      return await callAIOnce(p, messages, Math.min(Math.round(tk * 1.6), 4000), contentOnly, false);
+    }
+    /* ③ 超时 → 同预算重试一次（有时只是网络抖），仍失败就放弃 */
+    if(kind === 'timeout'){
+      return await callAIOnce(p, messages, tk, contentOnly, false);
+    }
+    /* ④ 其余（鉴权 / 端点错 / 限流 / 服务端 5xx / 空返回）不重试：重试也不会成功，只会多烧一份 token */
+    throw e1;
   } finally { freeSlot(); }
 }
 function extractJSON(s){
@@ -264,7 +302,10 @@ function extractJSON(s){
 let queue = [], prefetching = false, aiFails = 0;
 let aiSeen = {};          // AI 事件文案去重
 let aiLastFrom = -1;      // 上一次预取覆盖到的年份，避免重复请求同一区间
-const QUEUE_TARGET = 12;
+/* 【队列要保持多少年的余量】以前是「保留 12 条事件」，可每年条数随 AI 占比从 1 变到 6，
+   12 条在高占比下只够撑 2 年 —— 预取一次要 5~10 秒，早就断粮了。
+   现在按「年」度量：队列尾部始终保持在当前年龄之后至少 PREFETCH_AHEAD_YEARS 年。 */
+const PREFETCH_AHEAD_YEARS = 15;
 
 /* ===== 并发预取（需求：AI 得多线程地跑，不必单线程问） =====
    JS 没有真线程，这里用「同时挂多个在途请求」实现并发效果（当前 5 路）。
@@ -295,45 +336,76 @@ let preHi = 0;                 // 已被预加载认领到的年份（bootPrepar
 const AI_TXT_MIN = 22, AI_TXT_MAX = 38, AI_TXT_HARD = 48;
 /* 需求 4：整局预加载的硬上限。到点就强制放行，绝不把玩家卡在读条里。 */
 const PRELOAD_MAX_MS = 30000;
-/* 【预加载量放大（随需求 10「每年多事件」同步放大）】
-   以前一年一件事，一年一次请求就够；现在机遇值档位下一年 2~5 件，
-   AI 那部分必须跟着按「每年 E 条」生成，否则一年只写一条、同年后半段
-   全被本地事件顶上，AI 占比撑不住（T 高时尤其明显）。
-   算法：算 1 到 min(寿命, PRELOAD_TARGET_YEARS) 年的「预期事件总数」，
-   其中 EXPECT_AI_RATIO 交给 AI（比例跟着设置里的 AI 占比滑条走），
-   再折成请求分片数（每片负载 = 每片年数 × 每年条数，钳在合理区间）。 */
-const PRELOAD_TARGET_YEARS = 100;  // 整局预加载覆盖到第几年（寿命基线 100，先铺到 100 岁）
-const PER_REQ_LOAD_LO = 8;         // 单次请求最少覆盖的「事件条数」负载
-const PER_REQ_LOAD_HI = 24;        // 单次请求最多覆盖的「事件条数」负载（再多模型会漏写、串阶段）
-const PER_REQ_YEARS_CAP = 8;       // 单次请求最多覆盖的年数（不跨阶段前提下，模型注意力也撑不住更长）
+/* 单次请求超时。关掉推理链后，一次 6~12 条事件的请求正常 3~8 秒返回；
+   40 秒的超时会让「端点不通」这种情况把读条整整拖满 40 秒 × 重试次数。 */
+const AI_TIMEOUT_MS = 25000;
+/* 【整局预加载铺到哪一年】
+   以前一律铺到 100 岁，可寿命基线就是 100、大多数人在 70~90 岁离世，
+   铺出来的 90~100 岁内容玩家一辈子也走不到 —— 纯烧 token。
+   现在改成「预计寿命 + 8 年余量」，再封顶 90 年。 */
+const PRELOAD_AHEAD = 8;
+const PRELOAD_MAX_YEARS = 90;
+/* 【开局读条只预生成前多少年】
+   开局把整辈子（最多 90 年）的事件一次性生成，是 token 开销最大的一处：
+   角色若早死，后面几十年的生成全部白烧。现在只预生成前 PRELOAD_BOOT_YEARS 年
+   （读条更快、也更省），之后的年份由进游戏后的 prefetch() 边玩边补 ——
+   同一套并发闸门、同一套去重与禁写清单，观感上只有「AI 预存」数字在动。 */
+const PRELOAD_BOOT_YEARS = 30;
+/* 单次请求写几条事件：超过 12 条模型就开始漏写、串阶段、错年龄；
+   少于 6 条又浪费一次请求的固定开销。片数由「总负载 ÷ 单片负载」折出来，
+   而不是硬按年数切 —— 以前每年 3~8 条却仍按「每片 8 年」切，
+   一片要写 24~64 条，模型必然写崩，这是「AI 格式错误」的主要来源之一。 */
+const PER_REQ_LOAD_LO = 6;
+const PER_REQ_LOAD_HI = 12;        // 单次请求写几条的硬上限
+const PER_REQ_YEARS_CAP = 6;       // 单次请求最多覆盖的年数（不跨阶段前提下）
+const PER_REQ_MAX = 60;            // 整局最多切多少片（兜底，防止参数异常时无限切）
 
-/* 这一年 AI 打算写几条：机遇值档位下每年事件数的期望 μ 乘 AI 目标占比，
-   至少 1 条（只要开 AI 就得有货），最多 6 条（与档位上限对齐）。 */
+/* 这一年 AI 打算写几条。
+   【关键修正】以前是 clamp(max(3, round(4T)), 3, 8)：不管滑条设成 10% 还是 100%，
+   每次请求都至少写 3 条，于是「AI 占比 25%」实际每年产出 3 条 AI 事件，
+   占比控制形同虚设，token 也照满额烧。现在按「当年事件数上限 × 目标占比」折算：
+   25% × 4 条上限 = 1 条，100% = 4 条，真正做到设多少花多少。 */
 function targetEvPerYear(){
-  const T = (getCfg().ai == null ? 50 : getCfg().ai) / 100;
-  /* v0.0.2：每批里要留出 3 条交互事件 + 1 条任务的位置，
-     否则一年只写 1~3 条时，交互/任务指令根本塞不进去。 */
-  return clamp(Math.max(3, Math.round(4 * T)), 3, 8);
+  const T = aiRatioT();
+  if(T <= 0) return 0;
+  const f = clamp(Math.round((S && S.fort) || 2), 1, 4);
+  const cap = FORT_HI[f] || 4;       // 这一年最多能有几件事
+  return clamp(Math.round(cap * T), 1, cap);
 }
-/* 按「每年条数 × AI 占比」折算整局预加载要分多少片请求 */
+/* 按「每年条数 × AI 占比」折算整局预加载要分多少片请求。
+   【关键修正】片数必须同时满足两个下限，否则模型会写崩：
+     ① 不跨阶段、每片 ≤ PER_REQ_YEARS_CAP 年（年数下限）；
+     ② 每片写的事件数 ≤ PER_REQ_LOAD_HI（负载下限）。
+   旧实现只按年数下限切，于是「AI 100% + 4 档」时每年 6 条 × 每片 6 年 = 36 条，
+   一个请求要模型写 36 条，必然漏写 / 串阶段 / 被长度截断 —— 白烧一次还拿不到结果。 */
 function planBootLoad(from, to){
-  const to2 = Math.max(from, Math.min(Math.round(to), PRELOAD_TARGET_YEARS));
-  const epy = targetEvPerYear();
+  const life = Math.max(6, Math.round((S && S.lifespan) || LIFE_BASE));
+  const want = Math.min(life + PRELOAD_AHEAD, PRELOAD_MAX_YEARS);
+  const to2 = Math.max(from, Math.min(Math.round(to), want));
+  const epy = Math.max(1, targetEvPerYear());
   const years = Math.max(1, to2 - from + 1);
   const evTotal = years * epy;
-  const perReq = clamp(Math.max(1, evTotal / 22), PER_REQ_LOAD_LO, PER_REQ_LOAD_HI);
-  const nReq = clamp(Math.ceil(years / PER_REQ_YEARS_CAP), 4, Math.ceil(evTotal / perReq));
+  const perReq = clamp(Math.round(evTotal / 20), PER_REQ_LOAD_LO, PER_REQ_LOAD_HI);
+  const byYears = Math.ceil(years / PER_REQ_YEARS_CAP);
+  const byLoad = Math.ceil(evTotal / PER_REQ_LOAD_HI);
+  const minReq = Math.max(byYears, byLoad);
+  const maxReq = Math.max(minReq, Math.ceil(evTotal / PER_REQ_LOAD_LO));
+  const nReq = clamp(Math.ceil(evTotal / perReq), minReq, Math.min(maxReq, PER_REQ_MAX));
   return { nReq: nReq, epy: epy, to: to2 };
 }
 
-/* 把 from..to 切成「不跨阶段 + 每片 ≤PER_REQ_YEARS_CAP 年」的请求任务。
+/* 把 from..to 切成「不跨阶段 + 每片 ≤yearCap 年」的请求任务。
+   yearCap 同时受两条约束：年数上限 PER_REQ_YEARS_CAP，以及
+   「一片写的事件数 ≤ PER_REQ_LOAD_HI」（每年 epy 条 → 最多 floor(HI/epy) 年）。
    want = 期望的片数（由 planBootLoad 折出）：片数够多时把每片压短，
    让每个请求都短小好写、又能并发铺满；片数不多就按年数上限切。 */
-function planTasks(from, to, want){
+function planTasks(from, to, want, epy){
   const out = [];
   const a0 = Math.max(0, Math.round(from));
   const end = Math.max(a0, Math.round(to));
-  const cap = clamp(Math.round(want || 40), 1, 40);
+  const cap = clamp(Math.round(want || 40), 1, PER_REQ_MAX);
+  const ep = Math.max(1, Math.round(epy || 1));
+  const yearCap = Math.max(1, Math.min(PER_REQ_YEARS_CAP, Math.floor(PER_REQ_LOAD_HI / ep)));
   /* 1) 先划出「不跨阶段」的连续区间（这段不能切碎，否则会串阶段） */
   const zones = [];
   let a = a0;
@@ -346,12 +418,12 @@ function planTasks(from, to, want){
     a = hi + 1;
   }
   /* 2) 把期望片数按年数比例分配到各区间，再在区间内均分切开。
-        每片年数仍受 PER_REQ_YEARS_CAP 约束：片数不够细时必须按上限对齐，
+        每片年数受 yearCap 约束：片数不够细时必须按上限对齐，
         否则单片过长，模型注意力越界、容易串阶段。 */
   const totalYears = zones.reduce((s, z) => s + z.n, 0) || 1;
   zones.forEach(z => {
     let k = Math.max(1, Math.round(cap * z.n / totalYears));
-    k = Math.max(k, Math.ceil(z.n / PER_REQ_YEARS_CAP));   // 每片不超过年数上限
+    k = Math.max(k, Math.ceil(z.n / yearCap));   // 每片不超过年数上限
     const base = Math.floor(z.n / k), rest = z.n % k;
     let f = z.from;
     for(let i = 0; i < k; i++){
@@ -361,15 +433,25 @@ function planTasks(from, to, want){
       f += nn;
     }
   });
-  return out.slice(0, 40);
+  return out.slice(0, PER_REQ_MAX);
 }
 
-/* 整局预加载还剩多少年没备好（进游戏后的「还差多少」判断用） */
+/* 整局预加载还剩多少年没备好（进游戏后的「还差多少」判断用）。
+   口径与 planBootLoad 保持一致：preTarget 为 0（尚未规划）时退回本局寿命 + 余量。 */
 function bootLeftYears(){
   if(!S) return 0;
   const qTail = queue.length ? Math.max.apply(null, queue.map(x => x.age)) : 0;
   const done = Math.max(Math.round(S.age), qTail);
-  return Math.max(0, (preTarget || PRELOAD_TARGET_YEARS) - done);
+  const tgt = preTarget || Math.min(Math.round((S && S.lifespan) || LIFE_BASE) + PRELOAD_AHEAD, PRELOAD_MAX_YEARS);
+  return Math.max(0, tgt - done);
+}
+/* 队列里已经备好、还没轮到用的年份跨度（年）。
+   prefetch 的「要不要补货」与「补几年」都按它算，而不是按「队列里还剩几条」——
+   高 AI 占比下每年 6 条，按条数算会让队列实际只够撑 2 年，早就断粮了。 */
+function queueYearsAhead(){
+  if(!S) return 0;
+  const tail = queue.length ? Math.max.apply(null, queue.map(x => x.age)) : 0;
+  return Math.max(0, Math.round(tail) - Math.round(S.age));
 }
 
 /* 【被拒绝的世界线】第一处来源：AI 真写出来了，却被闸门否决 */
@@ -448,13 +530,23 @@ function addToQueue(res){
     const oo = Array.isArray(o.o) ? o.o.map(sanChoice).filter(Boolean) : [];
     const rec = {age:ag, t:txt, e:cleanEff(o.effects), src:'AI', stage:stageOf(ag),
                  aff:sanAff(o.aff), sex:sanSex(o.sex)};
+    /* 【修复】AI 按契约写的 subs（隐藏子项增减）此前被整块丢掉 ——
+       提示词里明写「subs 键只能取自下表」，代码里却不接收，
+       等于让模型白写一段还白烧 token。现在按同一套白名单收下来。 */
+    const sb = sanSubs(o.subs);
+    if(sb) rec.subs = sb;
     if(oo.length){
       rec.o = oo;
       rec.n = '抉择';
       /* 给 AI 事件一个稳定 id：need.once / S.used 去重都靠它 */
       rec.id = 'aiev' + (Object.keys(aiSeen).length);
-      /* 「任务」型交互事件：AI 可写 need（once / tag / attr），一并带上 */
-      if(o.need && typeof o.need === 'object') rec.need = o.need;
+      /* 「任务」型交互事件：AI 可写 need（once / tag / attr），一并带上。
+         【修复】这里以前是「原样透传」：模型写 {"tag":"不存在的标签"} 也照收，
+         结果是这条分支事件的门槛永远不成立 —— 生成了却永远触发不了，纯浪费。
+         现在统一走 sanNeed 收敛：标签必须是游戏里真实存在的标签名，
+         属性区间必须落在合法属性键上，认不出的门槛一律丢掉（宁可人人可遇）。 */
+      const nd = sanNeed(o.need);
+      if(nd) rec.need = nd;
     }
     queue.push(rec);
     aiQuota.take(ag);
@@ -513,7 +605,7 @@ async function runTasks(tasks, my, onEach){
       if(!S || S.dead) return;
       const t = q.shift();
       if(!t) return;
-      try{ add += addToQueue(await prefetchStage(t.stage, t.from, t.n)); }
+      try{ add += addToQueue(await prefetchStage(t.stage, t.from, t.n, t.choice)); }
       catch(e){ aiFails++; }
       finally{ if(onEach) onEach(t); }
     }
@@ -522,6 +614,30 @@ async function runTasks(tasks, my, onEach){
   for(let i = 0; i < W; i++) ws.push(one());
   await Promise.all(ws);
   return add;
+}
+/* 给一批任务打上「这一批要不要写交互事件」的标记。
+   交互事件是全局节流的（每 5~10 年放行一次），而预加载是按片并发的 ——
+   如果每片都写，一次整局预加载能产出十几条分支事件，节流器只会放行其中几条，
+   其余全烂在队列里（结算时被当成「AI 文案」收走，玩家却从没见过）。
+   这里按年份顺序扫一遍，只在「按节流节奏确实轮得到」的片子上打标记。 */
+const CHOICE_SPACING = 6;      // 预生成时交互事件的排布间隔（年），落在 5~10 的节流窗口内
+function markChoiceTasks(tasks){
+  if(!S) return tasks;
+  let last = Number(S.lastChoiceAge);
+  if(!isFinite(last)) last = -CHOICE_GAP_MIN;
+  let nextDue = last + CHOICE_GAP_MIN;
+  tasks.forEach(t => {
+    const hi = t.from + t.n - 1;
+    if(hi >= nextDue){
+      t.choice = true;
+      /* 【修正】下一次到期年从「本次到期年」往后推，而不是从「片尾 +1」推。
+         旧写法 nextDue = max(hi+1, nextDue+SPACING)：只要片长 ≥ 间隔，
+         相邻的每一片都满足 hi≥nextDue，于是整局几乎每片都写交互事件 ——
+         既多烧 token，生成的抉择又远超 5~10 年一次的节流，用不上的只能烂在队列里。 */
+      nextDue = nextDue + CHOICE_SPACING;
+    }
+  });
+  return tasks;
 }
 
 /* 每个阶段的「生命主线」：用于约束 AI，保证事件像正常人的成长轨迹，
@@ -542,16 +658,39 @@ const STAGE_THEME_RANGE = {
 function stageThemeOf(age){
   return STAGE_THEME[stageOf(age)] || STAGE_THEME['青年'];
 }
+/* 隐藏子项画像：只报「最偏强的 3 项 + 最偏弱的 3 项」。
+   35 项全给既费 token 又没有重点，而 AI 真正需要知道的就是这个人细项上偏哪头 ——
+   这是它写好 subs（子项增减）与 req（需求向量）的唯一依据。 */
+function subProfile(){
+  if(!S) return {hi:[], lo:[]};
+  const rows = SUBS.map(x => ({
+    k:x.k, n:x.n,
+    v: Math.round((Number((S.hid || {})[x.k]) || 0) * 10) / 10
+  }));
+  const sorted = rows.slice().sort((a, b) => b.v - a.v);
+  return {hi: sorted.slice(0, 3), lo: sorted.slice(-3).reverse()};
+}
+/* 给 AI 的「全局状态」一句话：一次把性别 / 年龄 / 阶段 / 时代 / 难度 / 七项主属性 /
+   子项偏向 / 剩余寿命 / 主导属性 / 标签 / 天赋 全部交代清楚。
+   以前只给主属性与标签，AI 不知道「这个人还剩多少年」「这是个什么难度」，
+   于是 20 岁写退休、80 岁写备高考 —— 全局视野缺失就是这些串味的来源。 */
 function ctxBrief(){
   if(!S) return '';
   const a = S.attr;
+  const pr = attrProfile();
+  const sp = subProfile();
+  const left = Math.max(0, Math.round((Number(S.lifespan) || LIFE_BASE) - (Number(S.age) || 0)));
+  const d = DIFFS.find(x => x.id === S.diff);
+  const sv = x => x.n + (x.v >= 0 ? '+' : '') + x.v;
   return '性别：' + (S.sex || '通用') + '｜年龄' + Math.round(S.age) + '（' + stageOf(S.age) + '）｜时代：' + era.n +
+    '｜难度：' + (d ? d.n : '进阶档') + (d ? '（属性上限' + d.cap + '）' : '') +
     '｜属性：颜值' + Math.round(a.CHR) + ' 智力' + Math.round(a.INT) + ' 体质' + Math.round(a.STR) +
     ' 家境' + Math.round(a.MNY) + ' 幸运' + Math.round(a.LUK) + ' 快乐' + Math.round(a.SPR || 0) +
     ' 社交' + Math.round(a.SOC || 0) +
-    '（细分：共情' + Math.round(subVal('EMPATHY')) + ' 表达' + Math.round(subVal('EXPRESS')) +
-    ' 专注' + Math.round(subVal('FOCUS')) + ' 情绪稳定' + Math.round(subVal('MOOD')) + '）' +
-    '｜当前阶段主线：' + stageThemeOf(S.age).split('：')[1] +
+    '｜子项偏强：' + (sp.hi.length ? sp.hi.map(sv).join('、') : '无') +
+    '；偏弱：' + (sp.lo.length ? sp.lo.map(sv).join('、') : '无') +
+    '｜剩余寿命约' + left + '年' +
+    '｜主导属性：' + pr.dom +
     '｜标签：' + (S.tags.length ? S.tags.join('、') : '无') +
     '｜天赋：' + S.talents.map(id => talName(id)).join('、');
 }
@@ -559,7 +698,7 @@ function ctxBrief(){
    既喂给 AI 让它写的事件贴合属性，也供本地事件加权使用 ——
    这是「属性 × 事件连贯」的关键：先算出身，再让他一辈子像他自己。 */
 function attrProfile(){
-  const BASE = [['CHR','颜值'],['INT','智力'],['STR','体质'],['MNY','家境'],['LUK','幸运'],['SPR','快乐']];
+  const BASE = [['CHR','颜值'],['INT','智力'],['STR','体质'],['MNY','家境'],['LUK','幸运'],['SPR','快乐'],['SOC','社交']];
   if(!S) return {key:'INT', dom:'智力', domV:0, traits:[], paths:['普普通通一条路'], traj:'', low:[]};
   const a = S.attr;
   let dom = BASE[0], mx = -1e9;
@@ -578,7 +717,10 @@ function attrProfile(){
   if(hiS('FOCUS', 9)) tr.push('意志坚定');
   if(hiS('LEAD', 9)) tr.push('人脉广');
   if(hiS('MOOD', 12)) tr.push('心理韧性好');
-  if(hi('SPR', 70)) tr.push('性情开朗');
+  /* 【修正】SPR 是 7 个主属性之一，量纲是「主属性值」，不是退役的 MH（0~20 上下）。
+     旧阈值 70 是照退役前的心理健康刻度写的，主属性硬顶才 30，
+     于是「性情开朗」这条特征一辈子都判不出来。按主属性口径改成 18。 */
+  if(hi('SPR', 18)) tr.push('性情开朗');
   if(lo('MNY', 2)){ tr.push('家境清寒'); low.push('MNY'); }
   if(lo('STR', 3)){ tr.push('身体单薄'); low.push('STR'); }
   if(lo('INT', 3)){ tr.push('读书吃力'); low.push('INT'); }
@@ -586,7 +728,7 @@ function attrProfile(){
   if(lo('LUK', 2)){ tr.push('时运不济'); low.push('LUK'); }
   if(loS('FOCUS', 3)){ tr.push('容易半途而废'); low.push('FOCUS'); }
   if(loS('MOOD', 3)){ tr.push('心里脆弱'); low.push('MOOD'); }
-  if(lo('SPR', 25)){ tr.push('情绪低落'); low.push('SPR'); }
+  if(lo('SPR', 6)){ tr.push('情绪低落'); low.push('SPR'); }
   if(loS('EXPRESS', 3)){ tr.push('不太会说话'); low.push('EXPRESS'); }
   const paths = [];
   if(hi('INT', 7)) paths.push('学业/技术路线');
@@ -600,6 +742,84 @@ function attrProfile(){
   const traj = age <= 3 ? '襁褓与学步' : age <= 12 ? '上学与玩耍' : age <= 18 ? '青春期求学'
              : age <= 30 ? '立业起步' : age <= 60 ? '事业与家庭' : '晚年';
   return {key:dom[0], dom:dom[1], domV:mx, traits:tr, paths:paths, traj:traj, low:low};
+}
+/* ===== v0.0.3：一生基调（正/负事件配比）与跨年连贯 =====
+   需求：不同难度下「正面事件 : 负面事件」要有目标配比
+   （d0 3:1 · d1 2.5:1 · d2 1.5:1 · d3 1:1），不让简单档位的人生被负面事件淹没；
+   同时让相邻年份的事件在属性主题上互相承接，使一整局读起来像一段成长，
+   而不是每年各说各话的一盘散沙。 */
+function diffOf(){
+  return (typeof DIFFS !== 'undefined' && DIFFS.find(x => S && x.id === S.diff)) || DIFFS[1];
+}
+/* 事件基调：按主属性净增减判正负（AGE 与退役键不算）。+1 好 / -1 坏 / 0 中性 */
+function effNet(e){
+  if(!e || typeof e !== 'object') return 0;
+  let n = 0;
+  Object.keys(e).forEach(k => {
+    if(k === 'AGE' || LEGACY_SUB[k]) return;
+    if(S && S.attr && !(k in S.attr)) return;
+    n += Number(e[k]) || 0;
+  });
+  return n;
+}
+function evToneOf(ev){ return ev ? Math.sign(effNet(ev.e)) : 0; }
+/* 当前难度目标正面占比（DIFFS.pos 已按比例换算成小数） */
+function toneTarget(){ const d = diffOf(); return clamp(Number(d.pos != null ? d.pos : 0.6), 0.05, 0.95); }
+/* 负面效果衰减系数：越简单的档位，坏事打在属性上越轻 */
+function negDamp(){ const d = diffOf(); const v = Number(d.negDamp); return isFinite(v) ? clamp(v, 0, 1) : 1; }
+const TONE_K = 16;
+/* 抽取权重里的基调乘数：实际正面占比低于目标 → 抬好事、压坏事，反之亦然。
+   拉普拉斯平滑（+1/+2）避免开局样本太少时权重暴走。 */
+function toneMul(ev){
+  if(!S) return 1;
+  const tg = evToneOf(ev);
+  if(!tg) return 1;
+  const t = toneTarget();
+  const g = Number(S.toneG) || 0, b = Number(S.toneB) || 0;
+  const cur = (g + 1) / (g + b + 2);
+  const diff = t - cur;
+  const m = tg > 0 ? (1 + diff * TONE_K) : (1 - diff * TONE_K);
+  return clamp(m, 0.15, 6);
+}
+/* 事件牵动的属性/子项主题：用于跨年承接 */
+function affMainKeys(ev){
+  const out = [];
+  const add = k => { if(k && out.indexOf(k) < 0) out.push(k); };
+  const ef = (ev && ev.e) ? ev.e : {};
+  Object.keys(ef).forEach(k => {
+    if(k === 'AGE' || LEGACY_SUB[k]) return;
+    if(S && S.attr && (k in S.attr)) add(k);
+  });
+  if(ev && Array.isArray(ev.aff)) ev.aff.forEach(add);
+  return out;
+}
+const CHAIN_WIN = 6;
+/* 与最近几年主题重合的事件加权：让线头接得上（最多 +75%） */
+function chainMul(ev){
+  if(!S || !Array.isArray(S.recentAff) || !S.recentAff.length) return 1;
+  const ks = affMainKeys(ev);
+  if(!ks.length) return 1;
+  let hit = 0;
+  ks.forEach(k => { if(S.recentAff.indexOf(k) >= 0) hit++; });
+  if(!hit) return 1;
+  return 1 + Math.min(hit, 3) * 0.25;
+}
+/* 记下这条事件牵动的主题，供后续抽取承接 */
+function recordAff(ev){
+  if(!S) return;
+  if(!Array.isArray(S.recentAff)) S.recentAff = [];
+  affMainKeys(ev).forEach(k => {
+    const i = S.recentAff.indexOf(k);
+    if(i >= 0) S.recentAff.splice(i, 1);
+    S.recentAff.push(k);
+  });
+  while(S.recentAff.length > CHAIN_WIN) S.recentAff.shift();
+}
+/* 记一次基调（正/负），供 toneMul 计算当前配比。中性事件不计。 */
+function recordTone(net){
+  if(!S || !net) return;
+  if(net > 0) S.toneG = (Number(S.toneG) || 0) + 1;
+  else S.toneB = (Number(S.toneB) || 0) + 1;
 }
 /* 本地事件的属性亲和度：让抽到的事件跟这个人的画像贴合。
    规则简单可解释，并做上下限裁剪，避免权重悬殊导致年年同款：
@@ -678,7 +898,7 @@ function pickByFit(pool){
     if(d) rows.push({ it: pool[i], mad: r3(d.mad), r: Math.random() });
   }
   if(!rows.length) return null;
-  const w = rows.map(o => 1 / (0.6 + o.mad * 1.7 + o.r * 2.8));
+  const w = rows.map(o => (1 / (0.6 + o.mad * 1.7 + o.r * 2.8)) * toneMul(o.it) * chainMul(o.it));
   let sum = 0; w.forEach(v => { sum += v; });
   let roll = Math.random() * sum;
   for(let i = 0; i < rows.length; i++){
@@ -691,8 +911,9 @@ function pickByFit(pool){
 function weightedPickAff(pool){
   const pr = attrProfile();
   /* patch54：抽取权重 = 基础权重 × 属性亲和 × 需求向量匹配度
-     × 峰值年龄曲线。三者都是乘数，缺省全部为 1 —— 旧数据行为不变。 */
-  const w = pool.map(x => Math.max(0.0001, (x.w || 5) * affMul(x, pr) * reqMul(x) * peakMul(x)));
+     × 峰值年龄曲线。三者都是乘数，缺省全部为 1 —— 旧数据行为不变。
+     v0.0.3：再乘「基调配比」与「跨年主题承接」两个乘数，让一生更像一段成长。 */
+  const w = pool.map(x => Math.max(0.0001, (x.w || 5) * affMul(x, pr) * reqMul(x) * peakMul(x) * toneMul(x) * chainMul(x)));
   let sum = 0; w.forEach(v => { sum += v; });
   let r = Math.random() * sum;
   for(let i = 0; i < pool.length; i++){
@@ -738,26 +959,29 @@ function cleanEff(e){
 }
 /* ===== 需求 C：开局隐秘生成「人生大纲」 =====
    只在后台把这条暗线喂给年度事件生成器以保连贯；
-   界面不显示、日志不记、结算不提、导出文件与内容库都不含它。 */
+   界面不显示、日志不记、结算不提、导出文件与内容库都不含它。
+   【修复】这里以前还拼了 choicePrompt()（整段交互事件规则）——
+   大纲只是背景设定，跟「怎么写分支事件」毫无关系，那段说明纯属白烧；
+   而且 choicePrompt 已改名为 choiceRules（只在需要时拼），这里一并去掉。 */
 async function buildOutline(g){
   if(!aiReady() || !S || S.outline) return;
   try{
+    const pr = attrProfile();
     const raw = await callAI([
-      {role:'system', content: WORLD_BOOK + '\n\n【本次任务】你是这台模拟器的幕后编剧。只输出 JSON 对象，不要任何解释、不要代码块标记。'},
+      {role:'system', content: WORLD_TINY + '\n【本次任务】你是这台模拟器的幕后编剧。只输出 JSON 对象，不要任何解释、不要代码块标记。'},
       {role:'user', content:
         '为下面这个人生先写一条贯穿始终的暗线大纲，供后续逐年生成事件时保持连贯。\n' +
         '角色起手：' + ctxBrief() + '\n' +
-        '这个人的底子：主导属性' + attrProfile().dom + '，特征' +
-        (attrProfile().traits.length ? attrProfile().traits.join('、') : '平平无奇') +
-        '，可能走向' + attrProfile().paths.join('、') + '。大纲必须顺着这个底子铺，不要另起炉灶。\n' +
+        '这个人的底子：主导属性' + pr.dom + '，特征' +
+        (pr.traits.length ? pr.traits.join('、') : '平平无奇') +
+        '，可能走向' + pr.paths.join('、') + '。大纲必须顺着这个底子铺，不要另起炉灶。\n' +
         '要求：\n' +
         '1. 只输出 {"outline":"..."}，outline 是一段 120-220 字的纯文本\n' +
         '2. 依次交代：出身与家庭底子 → 性格与执念 → 童年关键印记 → 少年志向 → 青年选择 → 中年境遇 → 晚年归宿\n' +
         '3. 埋 2-3 条前后呼应的伏笔（某个人、某个物件、某次意外），后文要能回收\n' +
         '4. 第三人称陈述，不要分点、不要清单、不要出现具体年份数字\n' +
-        '5. 不要写成结局宣告，保留自然起伏' +
-    choicePrompt()}
-    ], 420);
+        '5. 不要写成结局宣告，保留自然起伏'
+    }], 400);
     if(g !== gen || !S || !raw) return;
     const o = extractJSON(raw);
     const t = (o && typeof o === 'object') ? (o.outline || o.text || '') : '';
@@ -777,14 +1001,17 @@ function choiceDue(){
   if(!S) return false;
   const cur = Math.round(S.age);
   const last = Number(S.lastChoiceAge);
-  if(!isFinite(last)) return cur >= CHOICE_GAP_MIN;   // 开局前 5 年不出
+  /* v0.0.3：首次抉择不再等到 5 岁 —— 幼年「抓周」(e21) 就是第一次交互，
+     让玩家从很小的时候就开始参与这个人的人生；之后仍按 5~10 年节流。 */
+  if(!isFinite(last)) return cur >= 1;
   const gap = cur - last;
   if(gap < CHOICE_GAP_MIN) return false;
   if(gap >= CHOICE_GAP_MAX) return true;
   return Math.random() < (gap - CHOICE_GAP_MIN + 1) / (CHOICE_GAP_MAX - CHOICE_GAP_MIN + 1);
 }
-/* 交互事件的影响放大系数：选项结果比普通事件重一倍（v0.0.2） */
-const CHOICE_AMP = 2;
+/* 交互事件的影响放大系数：选项结果比普通事件重得多（v0.0.3：2 → 2.5，
+   让「抉择」真正改变人生走向，而不是跟普通事件差不多） */
+const CHOICE_AMP = 2.5;
 function ampEff(e){
   if(!e || typeof e !== 'object') return e;
   const out = {};
@@ -794,66 +1021,111 @@ function ampEff(e){
   });
   return out;
 }
-function choicePrompt(){
+/* ===== 给 AI 的事件生成契约（静态块）=====
+   以前这段「格式说明」是拼在 user 消息里的，而且每个请求都重复写一遍
+   「35 个子项代号与中文名」「七条交互事件规则」「任务事件规则」——
+   一次请求光说明就一千多字，预加载 12 个请求就是一万多字，全是重复开销。
+   现在拆成两层：
+     · sysStatic()：与「这一次要写哪几年」无关的固定内容（世界书 + 格式契约 + 子项表），
+       放 system 消息里。绝大多数供应商会对 system 前缀做上下文缓存，
+       同一个前缀重复请求可以省下大部分输入 token；
+     · user 里只留「这一次」的变量（年龄区间、最近发生的事、禁写清单、角色状态）。
+   两层加起来仍然比原来短，且输出要求更明确。 */
+let _subTableCache = '';
+function subTable(){
+  if(!_subTableCache){
+    _subTableCache = SUBDEF.map(g =>
+      g[1] + '：' + g[2].map(sb => sb[0] + sb[1]).join('、')).join('\n');
+  }
+  return _subTableCache;
+}
+/* 事件生成的格式契约：只讲「怎么写」，不讲「写什么」。内容固定，可被缓存。 */
+function evFormatRules(){
   const jk = ['INT','CHR','STR','MNY','LUK','SPR','SOC'];
-  return '\n【交互事件】这一批里至少要写 ' + MIN_CHOICE_PER_REQ + ' 条「要玩家自己选」的分支事件，' +
-    '它们是这批事件的重点，写的时候多花点心思：' +
-    '① 每条给 2-3 个选项（字段 o），三选项的必须凑够三条正好走 ' +
-    jk.slice(0, 3).join(' / ') + ' 三条判定线（其余判定键：' + jk.join('/') + '）；' +
-    '【重要】交互事件在一局里很稀有，大约每 5~10 年才会出现一次，' +
-    '所以每条都要写成本阶段的「大抉择」，别写成日常小事；' +
-    '② 选项之间的差别是「活法不同」，不是对错，别写成「正确答案 + 两个陪跑」；' +
-    '③ 有的一方带判定（j:{"a":"INT","v":9}，值 = 主属性加成，判定不过走 no 分支），' +
-    '也可以有一项干脆无判定、直接承受结果；' +
-    '④ ok / no 都要写结果文案 t 与属性增减 e；t 一句 15-30 字，e 的键只能是主属性；' +
-    '⑤ 一个选项可以给标签 tag（字符串数组）或摘掉标签 untag；' +
-    '⑥ 分支事件同样要落在本阶段的年龄与场景里，年龄用 age:[起,止]；' +
-    '⑦ 分支事件也要写 aff / sex / subs / effects，其中 effects 是该事本身的基准影响。' +
-    '\n【任务事件】这一批里还要有 ' + MIN_TASK_PER_REQ + ' 条「任务」——它是有门槛、会延续的长期交互事件，' +
-    '比普通交互事件更重：' +
-    '① 用 need 写明门槛：{"tag":"社畜"} 需带某标签 / {"attr":{"INT":[12,99]}} 限定属性区间 / {"once":1} 一局只出一次；' +
-    '② age 跨度写宽一些（如 [25,50]），表示它可能在很长一段时间里等着这个人；' +
-    '③ 选项结果的属性增减要比普通事件重一倍（e 里写 ±3~6），并且必须带 tag —— ' +
-    '这个标签就是「任务已接下」的凭证，后面的事件会靠 need 里的 tag 接住它；' +
-    '④ 任务的文案要写成一个「开始」，不要写成「结束」：比如「你决定用三年时间考下那个证」，' +
-    '而不是「你考下了那个证」；' +
-    '⑤ 三条任务分别落在不同的人生面向（事业 / 感情 / 身体或兴趣），不要三件都是同一类。';
+  return '【本任务：年度事件生成器】严格只输出 JSON 数组，不要解释、不要代码块标记。\n' +
+  '每条事件恰好这 6 个字段：\n' +
+  '  age      整数。必须落在本次指定的年份区间内\n' +
+  '  text     ' + AI_TXT_MIN + '-' + AI_TXT_MAX + ' 字，以「你」开头，白描、不煽情、不起文名\n' +
+  '  aff      这条事偏向哪些隐藏子项，只能 1 个或 3 个（说不出 3 个就给 1 个）\n' +
+  '  sex      「男」「女」「通用」三者之一；拿不准一律「通用」\n' +
+  '  effects  主属性增减，键只能是 ' + jk.join('/') + '，值 -4~4\n' +
+  '  subs     隐藏子项增减，键只能取自下表，值 -4~4\n' +
+  '【隐藏子项表】\n' + subTable() + '\n' +
+  '【示例】[{"age":8,"text":"你在课本的空白处画了一整页小人，被老师没收了。","aff":["IMAG"],"sex":"通用","effects":{"SPR":1},"subs":{"IMAG":2}},{"age":8,"text":"你第一次在班里念课文，声音抖得自己都听见了。","aff":["EXPRESS","MOOD","TRUST"],"sex":"通用","effects":{"SOC":1},"subs":{"EXPRESS":-1,"MOOD":1,"TRUST":1}}]\n' +
+  '【硬性约束】\n' +
+  '1. 只写 JSON 数组本身，前后不要任何文字；条数、年龄必须与本次要求完全一致\n' +
+  '2. 同一年的几条要换场景、换句式，不要连写三件同类小事\n' +
+  '3. 文案里没写到的事，不要给它加属性；不要写 EQ / WIL / MH 这三个已退役的键\n' +
+  '4. 允许平淡：不必每年都发生大事，小事连着小事的年份才是常态\n' +
+  '5. 绝不复用「禁写清单」里的句子或它的换词版本';
 }
-/* 给 AI 的分支事件样例：从本地池现取，跨版本自更新（改了 e1–e20 样例跟着变） */
-function choiceSamples(){
-  try{
-    return (typeof EVENTS !== 'undefined' ? EVENTS : [])
-      .filter(e => e && Array.isArray(e.o) && e.o.length)
-      .slice(0, 2)
-      .map(e => JSON.stringify({
-        text: e.t, stage: '中年', age: e.w || [30, 40],
-        aff: [(e.aff && e.aff[0]) || 'SOC'], sex: '通用', effects: {},
-        o: e.o.map(o => Object.assign({ k: o.k }, o.j ? { j: o.j } : {},
-          { ok: String((o.ok && o.ok.t) || '···').slice(0, 40) }))
-      }).replace(/\n/g, ' '));
-  }catch(e){ return []; }
+/* 事件生成的 system 消息：世界书精简版 + 固定格式契约。
+   内容与「这一次写哪几年」完全无关 —— 一局里每个请求都逐字节相同，
+   供应商的 prompt 缓存（前缀缓存）才能命中；旧实现把说明拼进 user 里，
+   前面还夹着随年龄变化的角色状态，缓存永远打不中。 */
+let _evSysCache = '';
+function evSysPrompt(){
+  if(!_evSysCache) _evSysCache = WORLD_BRIEF + '\n\n' + evFormatRules();
+  return _evSysCache;
 }
+/* 交互事件契约：只在「本批确实要写交互事件」时才拼进 prompt。
+   以前每个请求都写满七条交互规则 + 五条任务规则，可绝大多数请求根本不写交互事件
+   （交互事件约 5~10 年才放行一次），这些说明全部白烧。 */
+function choiceRules(){
+  const jk = ['INT','CHR','STR','MNY','LUK','SPR','SOC'];
+  return '\n【额外要求：本批必须包含 ' + MIN_CHOICE_PER_REQ + ' 条「要玩家自己选」的分支事件】\n' +
+  '这是本批的重点，写成这个阶段的大抉择（交互事件一局只有几次，别写成日常小事）：\n' +
+  '· 多一个 o 数组，2-3 个选项；每项 k 选项名、ok 选中后的结果\n' +
+  '· 选填 j 判定：{"a":"INT","v":9} 表示用主属性判定，不过则走 no 分支（no 可选）\n' +
+  '· ok / no 里写 t（15-30 字结果文案）、e（主属性增减）、tag（获得的标签数组）、untag（摘掉的标签）\n' +
+  '· 选项之间是「活法不同」而非对错，别写成「一个正解 + 两个陪跑」\n' +
+  '· 至少一项带 j、至少一项不带 j（不带就是直接承受结果）；判定键只能是 ' + jk.join('/') + '\n' +
+  '· 分支事件同样要写 aff / sex / effects / subs，effects 是这件事本身的基准影响\n' +
+  '· 分支事件的结果增减写重一点（±2~4），它比日常事件更重\n' +
+  '\n【额外要求：本批还要有 ' + MIN_TASK_PER_REQ + ' 条「任务」型分支事件】\n' +
+  '任务 = 有门槛、会延续的长期抉择，写法与上面相同，另外：\n' +
+  '· 用 need 写门槛：{"tag":"社畜"} 需带该标签 / {"attr":{"INT":[12,99]}} 限定属性区间 / {"once":1} 一局只出一次\n' +
+  '· age 跨度写宽（如 [25,50]），表示它在很长一段时间里等着这个人\n' +
+  '· 结果里必须带 tag —— 那个标签就是「任务已接下」的凭证，后面的事件会靠 need 里的 tag 接住它\n' +
+  '· 文案写成一个「开始」而不是「结束」：写「你决定用三年考下那个证」，不写「你考下了那个证」';
+}
+/* 分支事件格式样例：从本地池现取，跨版本自更新（改了 e1–e20 样例跟着变）。
+   只在需要交互事件时才带上，且只给 1 条 —— 结构给一个就够，多给纯占 token。 */
 function choiceDemo(){
-  const demo = choiceSamples();
-  if(!demo.length) return '';
-  return '\n【分支事件格式样例（照这个结构写，内容别照抄）】\n' + demo.join('\n');
+  try{
+    const e = (typeof EVENTS !== 'undefined' ? EVENTS : [])
+      .filter(x => x && Array.isArray(x.o) && x.o.length)[0];
+    if(!e) return '';
+    const one = JSON.stringify({
+      age: 40, text: String(e.t || '').slice(0, 40), aff: ['SOC'], sex: '通用',
+      effects: {SOC: 1}, subs: {EMPATHY: 1},
+      o: e.o.slice(0, 2).map(o => Object.assign({k: o.k}, o.j ? {j: o.j} : {},
+        {ok: {t: String((o.ok && o.ok.t) || '···').slice(0, 30), e: {SOC: 1}}}))
+    }).replace(/\n/g, ' ');
+    return '\n【分支事件结构样例（照结构写，内容别照抄）】\n' + one;
+  }catch(err){ return ''; }
 }
-async function prefetchStage(st, from, n){
-  const epy = targetEvPerYear();       // 每年生成几条（随 AI 占比滑条走）
-  const sys = WORLD_BOOK + '\n\n' +
-    '【本次任务】你是这台模拟器的年度事件生成器。严格只输出 JSON 数组，不要任何解释、不要代码块标记。';
+async function prefetchStage(st, from, n, withChoice){
+  const epy = Math.max(1, targetEvPerYear());   // 每年生成几条（随 AI 占比滑条走）
+  const sys = evSysPrompt();
   /* 需求 D：把最近几年已发生的事交给 AI（本地 + 它自己写过的），让它有前情可承接。
      本地池的文案多带 # 前缀（标记已用过），这类不喂给 AI 当范文。 */
-  /* 禁写清单瘦身：原来把整个阶段内容库（每阶段 55-81 条、六阶段合计 7616 字）
-     全塞进 prompt，既拖慢又挤占输出预算。
-     改为「只给最近写过/发生过的 10 条」，与参考实现（只喂最近 5 条）同思路。 */
-  const avoid = dbAvoidList(st).slice(-16);
-  const localRecent = evRecent.slice(-10).filter(x => x.indexOf('#') !== 0);
-  const recent = localRecent.concat(aiRecent).slice(-12);
+  /* 禁写清单：内容库最近 8 条 + 本阶段「已经生成、还没轮到用」的在途文案。
+     并发请求彼此看不到对方写了什么，旧实现里同一件事常被两路同时写出来，
+     回来的重复条目又被 dupWithLib 闸门丢掉 —— 生成花了 token 却直接作废。
+     把在途文案也列进禁写清单，等于给并发请求一个共享的「已写过」视图。 */
+  const queued = (queue || []).filter(q => q && q.src === 'AI' && q.t && stageOf(q.age) === st)
+    .map(q => String(q.t)).slice(-12);
+  const avoid = dbAvoidList(st).slice(-8).concat(queued);
+  /* 最近发生过的事：本地 + AI 自己写过的 + 玩家做过的抉择结果。
+     抉择结果只写进了 S.logs，不在 evRecent / aiRecent 里 —— 于是玩家刚做完
+     一个大决定，后面的事件却完全不接这个茬。这里把最近的抉择补进前情窗口。 */
+  const localRecent = evRecent.slice(-8).filter(x => x.indexOf('#') !== 0);
+  const choiceRecent = (S && Array.isArray(S.logs) ? S.logs : [])
+    .filter(l => l && l.kind === 'choice' && l.text).slice(-2).map(l => String(l.text));
+  const recent = localRecent.concat(aiRecent).concat(choiceRecent).slice(-10);
   /* 需求 E①：把「最近一条」单独拎出来 —— 年序承接必须接住它，不能视而不见 */
   const lastOne = recent.length ? recent[recent.length - 1] : '';
-  /* 需求 E③：本阶段文风参照（只学笔法与颗粒度，情节措辞一律不得复用） */
-  const stageSample = dbAvoidList(st).slice(0, 3);
   /* 属性 × 事件连贯：把「这是个什么样的人」显式交给 AI。
      不给画像时 AI 只能靠年龄瞎写，事件与属性毫无关联；给了之后
      高智力会自然长出读书/技术线，家境清寒会自然长出拮据的日常。 */
@@ -868,78 +1140,83 @@ async function prefetchStage(st, from, n){
     ageNow <= 30 ? '青年，主线是求学收尾与初入社会：第一份工作、租房通勤、恋爱成家、跳槽被裁。不能有孙辈、退休。' :
     ageNow <= 60 ? '中年人，主线是事业与家庭双线：升职或裁员、房贷、子女教育、父母老去、体检异常。不能有幼儿园、月考。' :
                    '老年人，主线是退休与告别：晨练、老友、孙辈、慢性病、回忆往事。不能有求职、加班、育儿。';
+  /* 【关键修正】「岁数校准」讲的是「这一批要写的年份」，不是「现在多大」。
+     以前用的是 S.age（当前年龄），而整局预加载是在开局一次性把一辈子的年份都派出去的 ——
+     于是 AI 拿到的永远是「婴儿期」的说明，却要它写 30 岁、60 岁的事，
+     岁数校准这一整段不仅没用，还主动误导。现在按本批的中位年龄判定。 */
+  const midAge = Math.round(from + (n - 1) / 2);
+  const fitFor = a =>
+    a <= 3  ? '婴儿期：吃睡哭闹、学步学话，一切由大人抱着，没有任何自主行为。绝不能出现上学、考试、工作、恋爱、买房。' :
+    a <= 12 ? '小学阶段：同学、老师、作业、玩具、被夸被罚、家里的小事。不能有工作、恋爱、买房、开车。' :
+    a <= 18 ? '中学阶段：月考与升学压力、同伴、暗恋、和父母较劲、长身体。不能有婚姻、子女、房贷、退休。' :
+    a <= 30 ? '成年初期：大学收尾、第一份工作、租房通勤、恋爱成家、跳槽被裁、熬夜健身。不能有孙辈、退休。' :
+    a <= 60 ? '成家立业期：升职或裁员、房贷、子女教育、父母生病住院、体检异常、夫妻磨合。不能有幼儿园、月考。' :
+              '晚年：退休、晨练与老友、孙辈来访、老照片与回忆、骨质疏松与住院、老伴与告别。不能有求职、加班、育儿。';
   const profLine =
     '【这个人的底子】性别：' + (S && S.sex ? S.sex : '通用') +
-    '｜年龄：' + ageNow + ' 岁（' + stageOf(ageNow) + '）' +
     '｜主导属性：' + pr.dom + '（' + Math.round(pr.domV) + '）' +
     '｜人生阶段：' + pr.traj +
     '｜特征：' + (pr.traits.length ? pr.traits.join('、') : '平平无奇') +
+    '｜短板：' + (pr.low.length ? pr.low.map(an).join('、') : '不明显') +
     '｜可能的人生走向：' + pr.paths.join('、') + '\n' +
-    '【岁数校准】' + ageFit + '\n' +
-    '事件要能看出这个底子：优势属性要成为他的性格底色与惯常选择，' +
-    '短板要成为他反复受挫的地方；不要写出与这些特征相悖的桥段。\n' +
-    '属性也要与岁数对得上：智力高在幼年是「学话快、记性好」，在少年是成绩，在中年是专业判断；' +
-    '不要把一个 10 岁的孩子写成有社会声望、有存款、有职业身份的人。\n' +
+    '优势属性要成为他的性格底色与惯常选择，短板要成为他反复受挫的地方，不要写与这些特征相悖的桥段。\n' +
     '性别务必贴合：主角是男就写他当丈夫、当父亲、当家里那个扛事的视角；' +
     '主角是女就写她当妻子、当母亲、怀孕生育、婆媳相处的视角；' +
     '不要给男性角色写怀孕坐月子，也不要给女性角色写「你妻子」这类称呼。\n';
+  /* v0.0.3：把本档的「正负事件配比」与「成长连贯」写死给 AI —— 否则它爱怎么写就怎么写，
+     简单档位也会被写成一路倒霉，且每年像换了一个人。 */
+  const dnow = diffOf();
+  const toneLine =
+    '【本档基调】本局是「' + dnow.n + '」难度，一生中「正面事件 : 负面事件」应约为 ' +
+    (dnow.pn || '2.5:1') + '。不要连着铺排多件倒霉事，也不要把好事写满，按这个配比自然起伏。\n' +
+    '【成长连贯】这些事件要像同一个人一路走来：性格、执念、身边的人和物要能前后呼应，' +
+    '前一年埋下的线头后一年可以接着写，别每年换一个陌生人。\n';
   const user =
+    '【本批任务】写他从 ' + from + ' 岁到 ' + (from + n - 1) + ' 岁的年度事件：' +
+    '每年 ' + epy + ' 条，共 ' + (n * epy) + ' 条；age 字段只能取 ' + from + '~' + (from + n - 1) + ' 这些整数。\n' +
+    '【本阶段铁律】全部落在「' + st + '」（' + STAGE_THEME_RANGE[st][0] + '-' + STAGE_THEME_RANGE[st][1] + ' 岁）。' +
+    '本阶段只允许出现这类内容：' + STAGE_THEME[st] + '\n' +
+    '【岁数校准｜按本批年份】' + fitFor(midAge) + '\n' +
     '角色状态：' + ctxBrief() + '\n' +
     profLine +
     (S && S.outline ? '【本局人生大纲（内部参考，不要原样复述给玩家）】' + S.outline + '\n' : '') +
-    '请生成他从 ' + from + ' 岁到 ' + (from + n - 1) + ' 岁的 ' + (n * epy) + ' 条年度事件' +
-    '（每年 ' + epy + ' 条，共 ' + n + ' 年）。\n' +
-    '【本阶段铁律】这批事件的年龄全部落在「' + st + '」（' + STAGE_THEME_RANGE[st][0] + '-' + STAGE_THEME_RANGE[st][1] + ' 岁）。\n' +
-    '本阶段只允许出现这类内容：' + STAGE_THEME[st] + '\n' +
-    '要求：\n' +
-    '1. 每条 ' + AI_TXT_MIN + '-' + AI_TXT_MAX + ' 字（务必短，一行多一点就好），以「你」开头，' +
-    '读起来像这个普通人真实度过的一年；' +
-    '若给了「本局人生大纲」，事件必须扣着那条线走 —— 呼应已发生的事、为后面的伏笔铺垫，不要另起炉灶\n' +
-'2. 每一年要把上面说的条数写满，且同一年的几条要换不同场景（不要一年里连写三件同一类小事）；' +
-    '也不要用同一个句式反复写，不要和最近发生过的事雷同\n' +
-    '3. 允许平淡、允许没有起伏，不必每年都发生大事；也可以有小事连着小事的年份\n' +
-    '4. 如果角色状态里有标签（如【房贷】【社畜】【育有子女】），事件要能呼应它\n' +
-    (recent.length ? '5. 最近几年已经发生（按时间从早到晚）：' + recent.join('；') + '。可以承接其结果或余波，但不要再写同款桥段。\n' : '') +
-    (lastOne ? '5a. 【年序承接】紧挨着这次要写的年份之前，刚发生过的是：「' + lastOne + '」。' +
-       '你写的第一条必须与它构成时间上的先后关系 —— 或是它的直接结果，或是同时段的另一条线，' +
-       '绝不能写得像在它之前发生，也不能装作它没发生过。\n' : '') +
-    (avoid.length ? '5b. 【严禁重复】下列句子已存在于本阶段内容库中，绝不可写出与之相同或含义相近的内容（换词、换场景表述同样算违规）：' + avoid.join(' ｜ ') + '\n' : '') +
-    (stageSample.length ? '5c. 【文风参照】下面是本阶段内容库里的几条，只学它们的笔法与颗粒度' +
-       '（一行短句、白描、不煽情、不起文名），情节和措辞一个字都不许复用：' + stageSample.join(' ｜ ') + '\n' : '') +
-    '6. 每条事件按这五项写：内容（text）｜年龄段（age）｜一到三个属性偏向（aff）｜性别编号（sex）｜增减数字（effects + subs）。\n' +
-    '7. aff：这条事偏向哪些隐藏子项，只给 1 个或 3 个 —— 只说一个侧面给 1 个；' +
-    '说到同一维度的三个侧面给 3 个。可选子项：' + SUBS.map(x => x.k + '=' + x.n).join('、') + '。\n' +
-    '8. sex：这条事只可能发生在哪个性别身上，只能填「男」「女」「通用」三者之一。' +
-    '怀孕 / 坐月子 / 婆婆 / 月经这类只有女性会经历的事填「女」；' +
-    '妻子 / 岳父 / 当丈夫这类只有男性会经历的事填「男」；' +
-    '其余绝大多数（读书、生病、搬家、工作……任何人都可能遇上）一律填「通用」。拿不准就填「通用」。\n' +
-    '9. effects 与 subs：增减数字，主词条写 effects、副词条写 subs，两类都要有。' +
-    'effects 的键是主属性：CHR/INT/STR/MNY/LUK/SPR/SOC，范围 -4 到 4；' +
-    'subs 的键是隐藏子项（即 aff 里第 2、3 个），范围 -4 到 4。' +
-    '文案里没写到的事，不要给它加属性；至少有三成的事件要动到「主导属性」或「短板属性」。\n' +
-    '10. 严格格式：[{"age":' + from + ',"text":"...","aff":["INT"],"sex":"通用","effects":{"INT":2},"subs":{"MEMO":1,"LOGIC":1}},' +
-    ' 年龄区间一律用数字，不要写「幼年」这种阶段名]' +
-    choicePrompt() +
-    choiceDemo();
-  const raw = await callAI([{role:'system',content:sys},{role:'user',content:user}], clamp(n * epy * 90 + 400, 1200, 4000));
+    (recent.length ? '【最近已经发生（按时间从早到晚）】' + recent.join('；') + '。可以承接其结果或余波，但不要再写同款桥段。\n' : '') +
+    (lastOne ? '【年序承接】紧挨着本批之前刚发生过的是：「' + lastOne + '」。你写的第一条必须与它构成时间上的先后关系。\n' : '') +
+    (avoid.length ? '【禁写清单｜内容库与本局已生成，绝不可写出与之相同或含义相近的内容】' + avoid.join(' ｜ ') + '\n' : '') +
+    '【本批必须遵守】\n' +
+    '· 每一年把 ' + epy + ' 条写满，年份连续，不要漏年\n' +
+    '· 至少三成的事件要动到「主导属性」或「短板」\n' +
+    '· 角色身上的标签（如【房贷】【社畜】【育有子女】）要能被事件呼应\n' +
+    toneLine +
+    (withChoice ? choiceRules() + choiceDemo() : '\n【本批不写分支事件】全部写成普通年度事件，不要出现 o 字段。');
+  const raw = await callAI([{role:'system',content:sys},{role:'user',content:user}],
+    clamp(n * epy * 90 + 300, 900, 3600));
   const arr = extractJSON(raw);
   if(!Array.isArray(arr) || !arr.length) throw new Error('格式错误');
   return {arr, sys:'', from, n, lo:STAGE_THEME_RANGE[st][0], hi:STAGE_THEME_RANGE[st][1]};
 }
 async function prefetch(n){
   if(prefetching || !aiReady()) return;
+  if(aiRatioT() <= 0) return;   // 全本地：不生成、不烧 token（旧版在占比 0% 时仍会偷偷预取）
   if(!S || S.dead) return;
   // 覆盖区间从「当前年龄 / 队列尾部 / 上次请求终点」三者中取最大
   const qTail = queue.length ? Math.max.apply(null, queue.map(x => x.age)) : 0;
   const from = Math.max(Math.round(S.age) + 1, qTail + 1, aiLastFrom + 1, preHi + 1);
-  if(n == null) n = QUEUE_TARGET - queue.length;
+  /* 补货量按「还差几年余量」算，而不是「还差几条事件」—— 高占比下每年 6 条，
+     按条数算会让队列实际只够撑 2 年。单次最多铺 12 年（一年 6 条时即 72 条，
+     会被 planTasks 再切成多个小请求）。 */
+  if(n == null) n = PREFETCH_AHEAD_YEARS - queueYearsAhead();
   n = Math.min(Math.max(n, 0), 12);
   if(n <= 0) return;
   prefetching = true;
   dbAvoidCache = null;   // 每轮重新读内容库（结算入库后可能有变化）
   try{
-    /* 按阶段切片，片内并发跑 —— 这是「不串插」的第一道闸门 */
-    const tasks = planTasks(from, from + n - 1);
+    /* 按阶段切片，片内并发跑 —— 这是「不串插」的第一道闸门。
+       片数按「每年条数 × 目标占比」折算（planBootLoad 的同一套口径），
+       不再固定按 8 年切：AI 占比 25% 时每片 3~4 年、4 条左右，
+       一个请求就能覆盖，省下的都是真金白银。 */
+    const plan = planBootLoad(from, from + n - 1);
+    const tasks = markChoiceTasks(planTasks(from, from + n - 1, plan.nReq, plan.epy));
     /* 注意：这里的段数不计入 preTotal —— preTotal/preDone 是「整局预加载」的进度，
        只有 bootPrepare 派发的整局任务才算。进游戏后 prefetch 补货若也累加分母，
        「预加载 x/y 段」的分母会一直涨、放行比例永远显示不达标（曾经的真实 bug）。 */
@@ -968,9 +1245,33 @@ async function prefetch(n){
 function popQueue(){
   if(!queue.length) return null;
   queue.sort((x, y) => x.age - y.age);
-  if(queue[0].age <= S.age) return queue.shift();
-  // 队列里最早的事件还没到年份：如果是同一年的就取，否则等
-  return null;
+  /* 【修复】带 o 的分支事件只能由「抉择」路径（choiceDue 到点）消费。
+     旧实现直接把队首拿走，于是当 choiceDue() 处于冷却期时，
+     AI 花大代价写出来的分支事件会被当成普通事件弹出 —— 选项被丢弃，
+     玩家永远看不到这个抉择，token 也白烧了。这里只取「非分支」的最早条目，
+     分支条目留在队列里等到期。
+     v0.0.3：同一「最早到点」年份往往有好几条，这里在它们之间按
+     「基调配比 × 跨年主题承接」加权抽取，让 AI 队列也贴合难度的正负比与连贯；
+     年份先后顺序保持不变（仍先消化最早到点的年份）。 */
+  let minAge = null;
+  const elig = [];
+  for(let i = 0; i < queue.length; i++){
+    const q = queue[i];
+    if(Array.isArray(q.o) && q.o.length) continue;   // 分支事件：等抉择路径
+    if(q.age > S.age) break;                          // 已按年龄升序，后面都还没到年份
+    if(minAge == null) minAge = q.age;
+    if(q.age === minAge) elig.push(i);
+  }
+  if(!elig.length) return null;   // 队列里只剩分支事件 / 最早条目还没到年份
+  if(elig.length === 1) return queue.splice(elig[0], 1)[0];
+  const w = elig.map(i => Math.max(0.0001, toneMul(queue[i]) * chainMul(queue[i])));
+  let sum = 0; w.forEach(v => { sum += v; });
+  let r = Math.random() * sum;
+  for(let j = 0; j < elig.length; j++){
+    r -= w[j];
+    if(r <= 0) return queue.splice(elig[j], 1)[0];
+  }
+  return queue.splice(elig[elig.length - 1], 1)[0];
 }/* =========================================================
    交互事件（分支事件）纳入内容库 —— v0.1.2
    原本只有硬编码 const EVENTS（e1–e20）会弹出选项，内容库里的事件没有 o 字段，
@@ -997,18 +1298,39 @@ function evChoiceOK(e){
 /* need 容错：老数据可能是 {tag:'社畜'} 这种单值写法，也可能是 {tags:['社畜']} */
 function evNormNeed(e){
   const raw = (e && e.need) ? e.need : ((e && e.req) ? {attr:SQ2ATTR(e.req)} : null);
+  return sanNeed(raw);
+}
+/* need 收敛（AI 与导入数据共用同一条闸门）：
+   旧实现只做「字段搬家」，不校验内容，于是 AI 写 {"tag":"升职加薪"} 这种
+   游戏里根本不存在的标签时，门槛永远不成立 —— 事件生成出来了、却一辈子触发不了。
+   这里把标签收敛到真实存在的 TAGS 表，属性键收敛到合法属性，其余一律丢弃。 */
+function sanNeed(raw){
   if(!raw || typeof raw !== 'object') return null;
   const n = {};
+  const pickTag = v => {
+    const t = String(v == null ? '' : v).trim();
+    if(!t) return '';
+    if(TAGS[t]) return t;
+    /* 容错：模型常把标签写成「带书名号」或近义说法，去括号后再对一次 */
+    const t2 = t.replace(/[【】\[\]「」『』\s]/g, '');
+    if(TAGS[t2]) return t2;
+    const hit = Object.keys(TAGS).find(k => k === t2 || k.indexOf(t2) >= 0 || t2.indexOf(k) >= 0);
+    return hit || '';
+  };
   const t = raw.tag != null ? raw.tag : (Array.isArray(raw.tags) ? raw.tags[0] : null);
-  if(t) n.tag = String(t);
-  if(raw.not) n.not = String(raw.not);
+  const tg = pickTag(t);
+  if(tg) n.tag = tg;
+  const nt = pickTag(raw.not);
+  if(nt && nt !== tg) n.not = nt;
   if(raw.once) n.once = 1;
   if(raw.attr && typeof raw.attr === 'object'){
     const a = {};
     for(const k in raw.attr){
+      const key = String(k || '').toUpperCase();
+      if(!(key in (S && S.attr ? S.attr : {CHR:1,INT:1,STR:1,MNY:1,LUK:1,SPR:1,SOC:1}))) continue;
       const v = raw.attr[k];
-      if(Array.isArray(v) && v.length >= 2) a[k] = [Number(v[0]), Number(v[1])];
-      else if(isFinite(Number(v))) a[k] = [Number(v), Number(v)];
+      if(Array.isArray(v) && v.length >= 2 && isFinite(Number(v[0])) && isFinite(Number(v[1]))) a[key] = [Number(v[0]), Number(v[1])];
+      else if(isFinite(Number(v))) a[key] = [Number(v), Number(v)];
     }
     if(Object.keys(a).length) n.attr = a;
   }
@@ -1026,7 +1348,10 @@ function SQ2ATTR(req){
   });
   return out;
 }
-/* 把两种来源的分支事件合并（按 id 去重，库里的覆盖硬编码的同 id 条目） */
+/* 把两种来源的分支事件合并（按 id 去重，库里的覆盖硬编码的同 id 条目）
+   【性能】只关心带 o（分支选项）的条目，所以按阶段池逐段扫即可 ——
+   阶段源池已被 stageSrc() 缓存，不必每次都把全库 4605 条浅拷贝一遍。
+   分支事件按 stage 分散在各段，全扫一遍六段就是全库，没有遗漏。 */
 function choicePool(){
   const out = [], byId = {};
   const push = x => {
@@ -1036,11 +1361,26 @@ function choicePool(){
   };
   (typeof EVENTS !== 'undefined' ? EVENTS : []).forEach(push);
   try{
-    dataOf('ev').forEach(x => {
-      if(x && Array.isArray(x.o) && x.o.length) push(Object.assign({}, x));
+    STAGES.forEach(st => {
+      stageSrc(st).forEach(x => {
+        if(x && Array.isArray(x.o) && x.o.length) push(Object.assign({}, x));
+      });
     });
   }catch(e){}
   return out;
+}
+/* 【AI 分支事件的落库通道】—— v0.1.3
+   此前 AI 写出来的分支事件（带 o 的条目）只在当局限定的 queue 里活着：
+   结算时 harvestAiQueue() 只把 {t, age, e, aff, sex} 收进 S.aiMade，
+   o（选项）与 need（门槛）在那一刻被丢掉，于是「一键入库」进来的 AI 文案
+   永远退化成普通事件，下一局再也不会弹选项。
+   这里提供一个「完整落库」的入口：结算入库时优先用它，
+   把 o / need / subs 一并规范化后写进内容库。 */
+function aiMadeFull(q){
+  if(!q || q.src !== 'AI' || !q.t) return null;
+  return {t: String(q.t).slice(0, 140), age: Math.max(0, Math.round(Number(q.age) || 0)),
+          e: q.e || {}, aff: q.aff || [], sex: q.sex || '', subs: q.subs || null,
+          o: Array.isArray(q.o) ? q.o : null, need: q.need || null};
 }
 
 /* ===== 分支事件额外标签 ===== */
@@ -1049,7 +1389,22 @@ Object.assign(TAGS, {
   '负债':  {r:0, d:'每年家境 -1，心理 -1', y:{MNY:-1, MH:-1}},
   '养生':  {r:1, d:'体质与心理每年小幅回升', y:{STR:1}},
   '康复者':{r:1, d:'心理健康不再低于 5', y:{MH:1}},
-  '体制内':{r:1, d:'收入稳定，稀有奇遇概率略降'}
+  '体制内':{r:1, d:'收入稳定，稀有奇遇概率略降'},
+  /* v0.0.3：补齐 e21-e31 各阶段抉择事件授予的标签，保证 sanNeed 能把它们
+     认成「真实存在的标签」，也让这些选择在往后的年份里继续产生回响。 */
+  '爱读书':  {r:0, d:'学习类判定 +1，安静但少运动', y:{INT:1}},
+  '画画':    {r:0, d:'审美与表达见长，偶有灵感进账', y:{CHR:1}},
+  '爱运动':  {r:0, d:'体质每年小幅提升', y:{STR:1}},
+  '班长':    {r:1, d:'社交类判定 +1，责任感更强', y:{SOC:1}},
+  '理科生':  {r:0, d:'逻辑与智力成长更快', y:{INT:1}},
+  '文科生':  {r:0, d:'表达与共情见长', y:{SOC:1}},
+  '初恋':    {r:1, d:'心理韧性提升', y:{SPR:1}},
+  '专注学业':{r:0, d:'学习收益提升，社交机会减少', y:{INT:1}},
+  '叛逆':    {r:0, d:'抗压能力增强，人际摩擦增多', y:{SPR:1}},
+  '追梦':    {r:1, d:'非传统路径收益与风险同时放大'},
+  '安家':    {r:0, d:'生活趋于安稳', y:{MH:1}},
+  '含饴弄孙':{r:1, d:'晚年心理稳定', y:{MH:1}},
+  '老有所为':{r:1, d:'晚年仍有进项与价值感', y:{MNY:1}}
 });
 
 let S = null;
@@ -1083,7 +1438,10 @@ function newLife(talentIds, attrPts, diffId){
     /* 深渊值：被拒绝的世界线（闸门丢弃的 AI 事件 + 抉择时没走的分支） */
     abyss: abyssNew(),
     /* 需求 C：本局人生大纲 —— 只在后台喂给 AI，界面 / 导出 / 内容库都不展示 */
-    outline: '' 
+    outline: '',
+    /* v0.0.3：一生基调与跨年连贯 —— toneG/toneB 统计正面/负面事件条数，
+       recentAff 记最近牵动过的属性主题，两者共同驱动抽取权重（toneMul / chainMul） */
+    toneG: 0, toneB: 0, recentAff: []
   };
   resetEndUI();   // 新的人生：清掉上一局残留的结算卡与按钮条
   /* 抉择态复位：上一局若停在「等玩家点选项」的那一刻（读档 / 重开 / 退出都可能），
@@ -1174,7 +1532,7 @@ async function runLoop(my){
   while(my === gen && S && !S.dead){
     await tick(my);
     if(my !== gen) return;
-    if(queue.length <= 3 && aiReady()) prefetch();
+    if(aiReady() && queueYearsAhead() < PREFETCH_AHEAD_YEARS) prefetch();
     await waitWake(Math.max(60, getCfg().spd / speed));
     if(my !== gen) return;
     if(!running && !S.dead){ setStatus('已暂停'); return; }
@@ -1322,12 +1680,14 @@ async function tick(my){
       S.lastChoiceAge = Math.round(S.age);   // 记下这次，供 5~10 年节流
       /* 需求：AI 占比按「所有事件」的总量算 —— 带分支的抉择事件同样计入分母 */
       aiStat.n++;
-      /* AI 写的分支事件也要记账，不然结算时收不到「AI 加入」里 */
+      /* AI 写的分支事件也要记账，不然结算时收不到「AI 加入」里。
+         走 aiMadeFull 带上 o / need / subs —— 否则入库后只剩一句普通文案。 */
       if(e.src === 'AI'){
         aiStat.ai++;
         if(!S.aiMade) S.aiMade = [];
         if(S.aiMade.every(z => z.t !== (e.t || e.text))) {
-          S.aiMade.push({t: e.t || e.text, age: Math.round(S.age), e: {}, aff: e.aff || [], sex: e.sex || ''});
+          S.aiMade.push(aiMadeFull(Object.assign({}, e, {t: e.t || e.text, src: 'AI'})) ||
+            {t: e.t || e.text, age: Math.round(S.age), e: {}, aff: e.aff || [], sex: e.sex || ''});
         }
       }
       await doChoice(e, my);
@@ -1352,18 +1712,24 @@ async function tick(my){
     else if(drift < -0.15) wantAI = false;        // AI 明显偏多：让给本地
     else wantAI = canAI && Math.random() < T;     // 偏差可控：按目标概率自由掷
 
-    await sleep(60);
+    /* 【流畅度】本地模式（wantAI=false）下事件是即时的，这 60ms 等待毫无意义，
+       只会让每条事件都慢一截。只有真要等 AI 队列/现取时才等。 */
+    if(wantAI) await sleep(60);
     let ev = null;
     /* v0.0.2：AI 写的交互事件（带 o）走抉择流程 —— 与本地交互事件同一条路径。
-       只从队列里挑带 o 的条目，够不到就让本地池顶上，不占用普通事件的队列位。 */
-    if(wantAI && choiceDue() && queue.some(q => Array.isArray(q.o) && q.o.length)){
-      const qi = queue.findIndex(q => Array.isArray(q.o) && q.o.length);
-      ev = queue.splice(qi, 1)[0];
+       【修复】此前只判「队列里有没有带 o 的条目」，不看它的年龄：
+       预加载是提前铺几十年的，28 岁的抉择会被 20 岁这年抢出来用掉，
+       于是「AI 写的交互事件」要么提前发生、要么把本该到年的普通事件挤掉。
+       现在只认「年龄已经到点」的条目（q.age <= 当前年龄），与 popQueue 同一口径。 */
+    const qChoice = wantAI && choiceDue()
+      ? queue.findIndex(q => Array.isArray(q.o) && q.o.length && Number(q.age) <= S.age && evChoiceOK(q)) : -1;
+    if(qChoice >= 0){
+      ev = queue.splice(qChoice, 1)[0];
       S.lastChoiceAge = Math.round(S.age);   // 与本地交互事件共用同一个节流计时
       aiStat.n++;
       aiStat.ai++;
       if(!S.aiMade) S.aiMade = [];
-      if(S.aiMade.every(z => z.t !== ev.t)) S.aiMade.push({t: ev.t, age: Math.round(S.age), e: {}, aff: ev.aff || [], sex: ev.sex || ''});
+      if(S.aiMade.every(z => z.t !== ev.t)) S.aiMade.push(aiMadeFull(ev));
       await doChoice(ev, my);
       if(my !== gen) return;
       saveHist(); renderPlayHead();
@@ -1378,7 +1744,7 @@ async function tick(my){
     }
     if(!ev){
       ev = localEvent();
-      if(canAI && T > 0 && !prefetching) prefetch();   // 顺手补货
+      if(canAI && T > 0 && !prefetching && queueYearsAhead() < PREFETCH_AHEAD_YEARS) prefetch();   // 顺手补货
     }
     if(my !== gen || !S || S.dead) return;
 
@@ -1399,6 +1765,12 @@ async function tick(my){
       if(alt) ev = alt; else continue;
     }
     seen[normTxt(ev.t) || ev.t] = 1;
+    /* once 事件抽过即打标：此前只有分支事件（S.used 那段）会写 ev_<id>，
+       普通本地事件的 once 过滤（01-data.js chooseEv）因此形同虚设。 */
+    if(ev.id && ev.once && S){
+      if(!S.flags) S.flags = {};
+      S.flags['ev_' + ev.id] = 1;
+    }
 
     aiStat.n++;
     if(ev.src === 'AI'){
@@ -1407,7 +1779,7 @@ async function tick(my){
       if(aiRecent.length > AI_RECENT_WIN) aiRecent.shift();
       // 需求 7：记下本局 AI 生成的事件，结算时收进「AI 加入」库
       if(!S.aiMade) S.aiMade = [];
-      if(S.aiMade.every(z => z.t !== ev.t)) S.aiMade.push({t: ev.t, age: Math.round(S.age), e: ev.e || {}, aff: ev.aff || [], sex: ev.sex || ''});
+      if(S.aiMade.every(z => z.t !== ev.t)) S.aiMade.push(aiMadeFull(ev));
     }
 
     /* 事件自带的标签（如房贷 / 社畜 / 名校）：抽到即挂上，与抉择里的标签同一条路径 */
@@ -1417,6 +1789,8 @@ async function tick(my){
     /* 主属性照旧，隐藏子项静默生效 —— 界面只看到主属性的红绿增减 */
     applySubs(ev.subs);
     const delta = applyEffect(ev.e).join(' ');
+    /* v0.0.3：记下这条事件牵动的主题，供后续年份在属性线头上承接 */
+    recordAff(ev);
     let net = 0; const ef = ev.e || {};
     for(const kk in ef){ if(S.attr && (kk in S.attr)) net += Number(ef[kk]) || 0; }
     const kind = net < 0 ? 'bad' : 'good';
@@ -1496,6 +1870,8 @@ function doChoice(e, my){
         lines.push('<div class="resT">你选了「' + esc(o.k) + '」</div>');
         lines.push('<div class="resB' + (passed ? '' : ' bad') + '">' + esc(res.t) + '</div>');
         const d = applyEffect(ampEff(res.e)).join(' ');
+        /* v0.0.3：抉择结果同样计入跨年主题，让后续事件承接这次选择 */
+        recordAff({e: res.e});
         const dh = deltaHTML(d);
         if(dh) lines.push('<div class="resD">' + dh + '</div>');
         (res.tag || []).forEach(t => { const r = addTag(t); if(r) lines.push('<div class="resD">获得标签 ' + esc(r) + '</div>'); });
@@ -1567,7 +1943,17 @@ function refreshStatus(){
   const el = $('#plStatus'); if(!el || !S) return;
   if(S.dead){ el.textContent = '已结束 · 看完小结点「立即总结这一生」'; return; }
   if(!aiReady()){
-    el.textContent = '本地事件模式（未启用 AI 或未配置） · AI 预存 ' + aiStock().q + ' 条';
+    /* 【本地模式】不再显示「AI 预存 0 条」这种无意义信息，改成本地事件库进度：
+       当前阶段 + 本局还没经历过的事件条数。数据全部来自已缓存的 stageSrc，开销可忽略。 */
+    try{
+      const st = stageOf(S.age);
+      const src = stageSrc(st);
+      let left = 0;
+      for(let i = 0; i < src.length; i++){ if(!evStamp[src[i].text]) left++; }
+      el.textContent = '本地事件模式 · ' + st + ' · 本阶段还剩 ' + left + ' / ' + src.length + ' 条未经历';
+    }catch(e){
+      el.textContent = '本地事件模式';
+    }
     return;
   }
   const tot = aiStat.n;
@@ -1664,13 +2050,14 @@ function renderDiff(){
     const el = document.createElement('div');
     el.className = 'diff' + (alloc.diff === d.id ? ' on' : '') + (lock ? ' lock' : '');
     el.innerHTML = '<b>' + d.n + '</b><small>' + d.pts + ' 点 · 单属性上限 ' + d.cap + '</small>' +
-      '<small>' + (lock ? '需通关 ' + d.need + ' 次解锁' : '稀有奇遇 ×' + d.rare) + '</small>';
+      '<small>' + (lock ? '需通关 ' + d.need + ' 次解锁' : '稀有奇遇 ×' + d.rare + ' · 正负比 ' + d.pn) + '</small>';
     el.onclick = () => { if(lock){ toast('通关 ' + d.need + ' 次后可解锁'); return; } setDiff(d.id); };
     row.appendChild(el);
   });
   const cur = DIFFS.find(x => x.id === alloc.diff);
   $('#atSub').textContent = cur.n + ' · ' + (DEV_ON ? '∞' : cur.pts) + ' 点';
-  $('#diffNote').textContent = cur.d + '；单属性上限 ' + cur.cap + '。点数越少，稀有奇遇概率越高。';
+  $('#diffNote').textContent = cur.d + '；单属性上限 ' + cur.cap + '，事件正负比约 ' + cur.pn +
+    '。点数越少，稀有奇遇概率越高。';
 }
 function setDiff(id){
   alloc.diff = id;
