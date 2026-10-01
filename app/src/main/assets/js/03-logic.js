@@ -181,11 +181,27 @@ function stripThink(s){
    把 max_tokens 吃光后 content 返回空串、finish_reason=length，
    事件生成必然报「格式错误」，表现出来就是「AI 暂不可用，已用本地事件兜底」。
    关掉后 12/12 成功、快 2.4 倍、省 81% token（242 vs 1264）。 */
+/* 在途请求登记表：体检「取消」按下时据此一次性 abort。
+   原先取消只是把 tkCancelled 置真，而流程此刻正卡在 await fetch 上，
+   必须等网络自己返回才会命中下一个 if(tkCancelled) —— 按钮点了毫无反应。
+   登记/注销都在这里做，取消方只调用 abortAIInflight()。 */
+const AI_INFLIGHT = new Set();
+/* 取消代际号：每取消一次 +1。请求发出时记下当时的代际，被 abort 后比对代际是否变了 ——
+   变了说明是「用户取消」而非「网络超时」，不再走重试分支白烧一次请求。
+   用递增计数而非布尔，是为了不必复位：绝不可能把 AI 永久卡死。 */
+let AI_ABORT_GEN = 0;
+function abortAIInflight(){
+  AI_ABORT_GEN++;
+  AI_INFLIGHT.forEach(c => { try{ c.abort(); }catch(e){} });
+  AI_INFLIGHT.clear();
+}
 async function callAIOnce(p, messages, maxTokens, contentOnly, useNoThink){
   const url = endpointOf(p.base, '/chat/completions');
   const body = {model:p.model, messages, temperature:1.0, max_tokens:maxTokens || 900};
   if(useNoThink) body.thinking = {type:'disabled'};
   const ctl = new AbortController();
+  const gen = AI_ABORT_GEN;
+  AI_INFLIGHT.add(ctl);
   const timer = setTimeout(() => ctl.abort(), AI_TIMEOUT_MS);
   try{
     const r = await fetch(url, {
@@ -218,9 +234,13 @@ async function callAIOnce(p, messages, maxTokens, contentOnly, useNoThink){
     return stripThink(out);
   }catch(e){
     /* 超时单独标出来：调用方据此决定「换更长预算重试」还是「干脆别重试」 */
-    if(e && (e.name === 'AbortError' || /abort/i.test(String(e.message || '')))) throw new Error('AI 请求超时');
+    if(e && (e.name === 'AbortError' || /abort/i.test(String(e.message || '')))){
+      /* 区分「网络超时」与「用户取消」：前者值得同预算再试一次，后者必须立刻停手 */
+      if(gen !== AI_ABORT_GEN) throw new Error('已取消');
+      throw new Error('AI 请求超时');
+    }
     throw e;
-  } finally { clearTimeout(timer); }
+  } finally { clearTimeout(timer); AI_INFLIGHT.delete(ctl); }
 }
 /* 【重试策略】以前是「不管什么错都拿双倍预算再问一次」：
    ① 超时也翻倍预算 —— 本来就要等 40 秒，翻倍后更慢，玩家读条直接卡死；

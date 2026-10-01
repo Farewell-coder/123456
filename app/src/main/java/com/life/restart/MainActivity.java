@@ -305,7 +305,7 @@ public class MainActivity extends Activity {
         }
         if (web.getUrl() == null) {
             web.clearCache(true);
-            web.loadUrl("file:///android_asset/index.html?v=0.0.3");
+            web.loadUrl("file:///android_asset/index.html?v=0.0.4");
         }
     }
 

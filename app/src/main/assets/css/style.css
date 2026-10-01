@@ -548,14 +548,22 @@ input,textarea{-webkit-user-select:auto;user-select:auto}
 .dsel .dval::after{content:'\25BE';position:absolute;right:14px;top:50%;transform:translateY(-50%);
   color:var(--dim);font-size:var(--fs-sm);transition:transform var(--dur-base)}
 .dsel.on .dval::after{transform:translateY(-50%) rotate(180deg)}
+/* 展开时抬升整个容器：面板是 absolute，靠这里压过同卡片内后续行 */
+.dsel.on{position:relative;z-index:var(--z-drop)}
+/* 底色必须用 --bg 而不是 --card：面板就长在 .card 内部，而 .card 本身就是 --card，
+   同色 ⇒ 看不出边界，观感就是「展开后是个透明的框」。改用页面底色 + 强调色描边，
+   再把阴影加重，层次立刻出来。 */
 .dsel .dpanel{display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:var(--z-drop);
-  background:var(--card);border:1px solid var(--line);border-radius:var(--r-xl);box-shadow:var(--shadow);
+  background:var(--bg);border:1px solid var(--accLine);border-radius:var(--r-xl);
+  box-shadow:0 12px 30px -10px rgba(0,0,0,.30),0 2px 6px rgba(0,0,0,.10);
   max-height:250px;overflow-y:auto;padding:var(--sp-3)}
 .dsel.on .dpanel{display:block}
 .dsel .dopt{padding:var(--sp-5) var(--sp-6);border-radius:var(--r-md);font-size:var(--fs-base);color:var(--fg);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;
+  transition:transform var(--dur-micro) var(--ease),background var(--dur-micro) var(--ease)}
 .dsel .dopt.sel{background:var(--accSoft);color:var(--acc);font-weight:600}
-.dsel .dopt:active{background:var(--soft)}
+.dsel .dopt:active{background:var(--soft);transform:scale(.98);
+  transition-duration:var(--dur-press);transition-timing-function:var(--ease-out)}
 /* ===== 自定义开关（替代原生 checkbox） ===== */
 .swx{width:50px;height:30px;border-radius:var(--r-pill);background:var(--soft);border:1px solid var(--line);
   position:relative;flex:none;transition:background var(--dur-base) ease,border-color var(--dur-base) ease}
@@ -975,7 +983,7 @@ input,textarea{-webkit-user-select:auto;user-select:auto}
 #modal.on .box{animation:sheetIn var(--dur-layer) var(--ease-out) both}
 #dlg.on .dc{animation:dlgIn var(--dur-layer) var(--ease-out) both}
 /* 退出动画：关闭时整层淡出（遮罩+内容一起），不造包含块、不影响内部定位 */
-#modal.out,#dlg.out,#dbPage.out,#dbgPage.out,#aboutPage.out,#dbgDb.out,#tkPage.out{
+#modal.out,#dlg.out,#dbPage.out,#dbgPage.out,#aboutPage.out,#dbgDb.out,#tkPage.out,#tkProg.out{
   display:flex;pointer-events:none;animation:ovlOut var(--dur-layer) var(--ease-in) both}
 /* ⑤ 顶部栏与底部按钮条：随屏幕一起淡入，避免「先跳出来再归位」 */
 .screen.on .topbar{animation:scIn var(--dur-layer) var(--ease-out) both}
@@ -1182,9 +1190,9 @@ html.eco .screen.on .foot,html.eco #modal .card:not(.fold) > *:not(.chead){
         这里补一次淡入 + 内容上浮。
         必须排在上面的 .out（退出动画）之后：重开时 .on 要压过还没清掉的 .out，
         否则会反过来播一遍「退出」动画。 */
-#dbPage.on,#aboutPage.on,#dbgPage.on,#dbgDb.on,#bootPage.on{
+#dbPage.on,#aboutPage.on,#dbgPage.on,#dbgDb.on,#bootPage.on,#tkPage.on{
   animation:ovlIn var(--dur-slow) var(--ease-out) both}
-#dbPage.on .page,#aboutPage.on .page,#dbgPage.on .page,#dbgDb .page{
+#dbPage.on .page,#aboutPage.on .page,#dbgPage.on .page,#dbgDb .page,#tkPage.on .page{
   animation:scIn var(--dur-page) var(--ease-out) both}
 #bootPage.on .btitle,#bootPage.on .bpct,#bootPage.on .btip,#bootPage.on .bdots{
   animation:scIn var(--dur-slow) var(--ease-out) backwards}
@@ -1211,6 +1219,16 @@ html.eco .screen.on .foot,html.eco #modal .card:not(.fold) > *:not(.chead){
 .chead.tight{margin-bottom:var(--sp-3)}
 .note.ctr{text-align:center}
 .note.acc{color:var(--acc);font-weight:600}
+/* #btnTest / #btnTkuStat 复用了 .note（正文说明段落）样式，于是既没底色也没边框、
+   没内边距、更没按压动画，和旁边的 .new 按钮放在一起像两套设计。这里按 .new 的规格
+   补回按钮外观（作用域锁死在设置面板内的 button，不影响别处任何 .note 正文块）。 */
+#modal button.note.acc{display:block;width:100%;margin-top:var(--sp-6);
+  padding:var(--sp-6) var(--sp-7);background:var(--card);border:1px solid var(--accLine);
+  border-radius:var(--r-lg);font-size:var(--fs-base);color:var(--acc);font-weight:600;text-align:center;
+  transition:transform var(--dur-micro) var(--ease),background var(--dur-micro) var(--ease),
+    border-color var(--dur-micro) var(--ease),opacity var(--dur-press) linear}
+#modal button.note.acc:active{transform:scale(.97);background:var(--accSoft);
+  transition-duration:var(--dur-press);transition-timing-function:var(--ease-out)}
 .note.mt9{margin-top:var(--sp-4)}
 .flr{float:right}
 .stsub{font-weight:400;color:var(--dim)}

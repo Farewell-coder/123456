@@ -481,6 +481,7 @@ async function tkAffSync(onProgress){
         const batch = batches[bi];
         let res = null;
         try{ res = await aiAffJudge(batch); }catch(e){ res = null; }
+        if(tkCancelled) return {done, viaAI, skip, cancelled:true};
         batch.forEach(b => {
           const a0 = sanAff(b.it.aff);
           const q0 = sanReq(b.it.req);
@@ -632,11 +633,34 @@ function tkpActs(actions){
     box.appendChild(b);
   });
 }
-const tkpClose = () => { const el = $('#tkProg'); if(el) el.classList.remove('on'); };
+const tkpClose = () => exitLayer($('#tkProg'));
+/* 取消的统一下手处：① 中止正在飞的 AI 请求（否则取消要等网络返回才生效）
+   ② 立刻把框切到「正在取消」并清掉按钮，让用户看见反馈（原先点了毫无变化，
+   看起来就是按钮坏了）。真正的收尾由 dbTkRun 的 tkCancelled 分支做。 */
+function tkCancelNow(){
+  tkCancelled = true;
+  abortAIInflight();
+  /* 若正卡在 tkpAsk 的确认弹窗上，用拒绝把它放出来（dbTkRun 的 catch 会收尾） */
+  if(tkAskRej){ const r = tkAskRej; tkAskRej = null; try{ r(new Error('已取消')); }catch(e){} }
+  tkpShow('正在取消', '已停止，正在收尾…');
+  tkpBar(0, '');
+  tkpActs([]);
+}
+/* 返回键用：还在跑就先取消，空闲则直接关框 */
+function tkBackClose(){
+  if(tkBusy){ tkCancelNow(); return; }
+  tkpClose();
+}
+let tkAskRej = null;
 function tkpAsk(title, desc, actions){
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
+    tkAskRej = reject;
     tkpShow(title, desc);
-    tkpActs(actions.map(a => ({t:a.t, pri:a.pri, plain:a.plain, fn:() => resolve(a.v)})));
+    /* 取消按钮必须挂在这里：否则等待确认期间点取消，resolve 永不触发，
+       dbTkRun 卡死在 await，tkBusy 永远为 true —— 之后再也点不开体检。 */
+    const list = (actions || []).map(a => ({t:a.t, pri:a.pri, plain:a.plain, fn:() => resolve(a.v)}));
+    list.push({t:'取消', plain:true, fn: tkCancelNow});
+    tkpActs(list);
   });
 }
 /* 统一入口：查重 →（命中则确认删除）→ 同步偏向。全程一个进度框，可随时取消。 */
@@ -649,7 +673,7 @@ async function dbTkRun(){
     /* ① 查重 */
     tkpShow('文本体检', '正在检测重复…');
     tkpBar(0, '准备中…');
-    tkpActs([{t:'取消', plain:true, fn: () => { tkCancelled = true; }}]);
+    tkpActs([{t:'取消', plain:true, fn: tkCancelNow}]);
     const dup = await tkDedupScan((f, msg) => tkpBar(f * 0.5, msg));
     if(tkCancelled){ tkpClose(); return; }
     let removed = 0;
@@ -670,7 +694,7 @@ async function dbTkRun(){
     /* ② 同步偏向 */
     tkpShow('文本体检', '正在同步偏向…');
     tkpBar(0.5, '准备中…');
-    tkpActs([{t:'取消', plain:true, fn:() => { tkCancelled = true; }}]);
+    tkpActs([{t:'取消', plain:true, fn: tkCancelNow}]);
     const r = (await tkAffSync((f, msg) => tkpBar(0.5 + f * 0.5, msg))) || {};
     if(tkCancelled){ tkpClose(); return; }
     /* ③ 收尾 */
@@ -2065,6 +2089,9 @@ $('#btnNewCfg').onclick = () => {
 
   /* 返回键：优先关弹窗，其次暂停 */
   window.__back = function(){
+    /* #tkProg（文本体检）层级最高（z-modal3:330），原先完全没被返回键处理 ——
+       开着它按返回会穿透到下面的 CUR 分支，把整屏切走。最先拦它。 */
+    if($('#tkProg').classList.contains('on')){ tkBackClose(); return true; }
     if(!$('#dlgI').classList.contains('hide')){ $('#dlgI').classList.add('hide'); return true; }
     if($('#dlg').classList.contains('on')){ closeDlg(); return true; }
     /* 二级覆盖层优先于设置弹窗（modal）：从设置点进去的子界面，返回键要先关子界面，
@@ -2072,6 +2099,10 @@ $('#btnNewCfg').onclick = () => {
     if($('#dbgDb').classList.contains('on')){ dbgDbClose(); return true; }
     if($('#dbgPage').classList.contains('on')){ closeDbg(); return true; }
     if($('#aboutPage').classList.contains('on')){ closeAbout(); return true; }
+    /* #tkPage（Token 统计）是从设置面板点开的，此时 #modal 仍是 on 状态。
+       原先没有它的分支，返回键会命中下面的 #modal 只关设置面板，统计页纹丝不动 ——
+       这就是「里面的界面返回键退不出去」。必须排在 #modal 之前。 */
+    if($('#tkPage').classList.contains('on')){ closeTkuPage(); return true; }
     if($('#dbPage').classList.contains('on')){ closeDbPage(); return true; }
     if($('#modal').classList.contains('on')){ saveProfile(); closeSet(); return true; }
     if(REC_VIEW != null){ closeRecView(); return true; }   // 回看态返回战绩列表
@@ -3174,7 +3205,7 @@ if(typeof requestIdleCallback === 'function'){
      #tkProg 用的是 display:none 而不是 .hide，按类名判会误伤（手势永远起不来）。 */
   const vis = id => { const e = q(id); if(!e) return false; return getComputedStyle(e).display !== 'none'; };
   const overlayOpen = () =>
-    ['#modal','#dlg','#dlgI','#tkProg','#dbPage','#aboutPage','#dbgPage','#dbgDb','#bootPage','#dbgDlg'].some(vis);
+    ['#modal','#dlg','#dlgI','#tkProg','#tkPage','#dbPage','#aboutPage','#dbgPage','#dbgDb','#bootPage','#dbgDlg'].some(vis);
 
   let g = null;            /* 跟手中的返回手势 */
   let pend = 0, finish = null;   /* 松手后的收尾定时器 + 它要做的事 */
