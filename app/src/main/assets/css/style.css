@@ -248,17 +248,37 @@ input,textarea{-webkit-user-select:auto;user-select:auto}
 
 /* ===== 主界面 ===== */
 #scMenu{justify-content:center;padding:0 var(--sp-10) calc(30px + env(safe-area-inset-bottom))}
-.logo{font-size:var(--fs-4xl);font-weight:800;letter-spacing:6px;text-align:center}
+.logo{position:relative;font-size:var(--fs-4xl);font-weight:800;letter-spacing:6px;text-align:center}
+/* 标题后的柔光：一枚静态径向光晕，把「My Life / My Sim」从页底轻轻托起来。
+   纯装饰、不吃触摸事件，本身不动画，故省电模式无需单独降级。 */
+.logo::before{content:'';position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);
+  width:130%;height:150%;pointer-events:none;z-index:-1;
+  background:radial-gradient(closest-side,var(--accGlow),transparent 72%)}
 /* 主标题拆成左上 / 右下两段，做出斜对角错落。
    渐变紫不能留在 .logo 上：background-clip:text 只作用于自身文字，
-   子元素继承不到背景，会只剩 color:transparent 而整段消失。故每个词各配一份渐变。 */
-.logo .lg1,.logo .lg2{display:block;width:-moz-max-content;width:max-content;
-  background:var(--grad2);-webkit-background-clip:text;background-clip:text;color:transparent}
-.logo .lg1{margin:0 auto 0 0;text-align:left}
-/* 右对齐；负 margin 抵消 letter-spacing 在末字后留下的 6px 空隙，视觉上才真正贴右边 */
-.logo .lg2{margin:0 -6px 0 auto;text-align:right}
-.logo .sub{display:block;font-size:var(--fs-sm);font-weight:500;letter-spacing:2.5px;color:var(--dim);
-  -webkit-text-fill-color:var(--dim);margin-top:var(--sp-6)}
+   子元素继承不到背景，会只剩 color:transparent 而整段消失。故每个词各配一份渐变。
+   渐变取四段并拉宽到 200%：紫 → 浅紫 → 高光白紫 → 浅紫 → 紫，既让字面有深浅过渡，
+   也给流光动画留出滑动余量；中间那道浅色即「高光带」。再加一层 drop-shadow 柔光，
+   让标题像自带背光而非平贴页面。 */
+.logo .lg1,.logo .lg2{display:block;width:-moz-max-content;width:max-content;letter-spacing:7px;
+  background:linear-gradient(100deg,var(--acc) 0%,var(--acc2) 30%,#cfc3ff 46%,var(--acc2) 62%,var(--acc) 100%);
+  background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+  -webkit-text-stroke:.5px rgba(255,255,255,.20);
+  filter:drop-shadow(0 1px 2px rgba(107,78,230,.45)) drop-shadow(0 8px 22px var(--accGlow))}
+.logo .lg1{margin:0 auto 0 6%;text-align:left}
+/* 右对齐；负 margin 抵消 letter-spacing 在末字后留下的 7px 空隙，视觉上才真正贴右边 */
+.logo .lg2{margin:0 calc(6% - 7px) 0 auto;text-align:right}
+/* 副标题：收成「文字宽度」才能让两侧装饰线真正贴着字走，而不是贴到屏幕边。 */
+.logo .sub{position:relative;display:block;width:max-content;margin:var(--sp-6) auto 0;
+  font-size:var(--fs-sm);font-weight:500;letter-spacing:2.5px;color:var(--dim);
+  -webkit-text-fill-color:var(--dim)}
+.logo .sub::before,.logo .sub::after{content:'';position:absolute;top:50%;width:36px;height:1px;
+  background:linear-gradient(90deg,transparent,var(--accLine))}
+.logo .sub::before{right:calc(100% + 10px)}
+.logo .sub::after{left:calc(100% + 10px);transform:scaleX(-1)}
+/* 流光：那条浅紫高光带在字面里缓缓扫过。周期 5s、来回往复，
+   动得慢到不会「抢戏」，但一眼能看出标题是活的。ease-in-out 避免两端急停。 */
+@keyframes logoShine{0%{background-position:0% 50%}100%{background-position:100% 50%}}
 .menu-list{display:flex;flex-direction:column;gap:var(--sp-6);margin-top:var(--sp-13)}
 .mbtn{padding:var(--sp-8);border-radius:var(--r-xl);background:var(--card);border:1px solid var(--line);
   box-shadow:var(--shadow);font-size:var(--fs-xl);font-weight:600;text-align:center;
@@ -552,11 +572,11 @@ input,textarea{-webkit-user-select:auto;user-select:auto}
 .dsel.on{position:relative;z-index:var(--z-drop)}
 /* 底色必须是 --card（浅色即 #fff），不能用 --bg：面板是 absolute，展开后会溢到
    .card 之外，而外层容器 #modal .box 用的正是 --bg，取同色 ⇒ 面板与容器糊成一片，
-   观感就是「透明的框、字全穿模」。取 --card 后与容器拉开明暗差，再配强调色描边
-   与阴影，边界一眼可辨。末尾 #fff 是不透明兜底，防变量缺失时退化为透明。 */
+   观感就是「透明的框、字全穿模」。取 --card 后与容器拉开明暗差；再配强调色描边
+   与加重阴影，边界一眼可辨。末尾 #fff 是不透明兜底，防变量缺失时退化为透明。 */
 .dsel .dpanel{display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:var(--z-drop);
   background:var(--card,#fff);border:1px solid var(--accLine);border-radius:var(--r-xl);
-  box-shadow:0 12px 30px -10px rgba(0,0,0,.30),0 2px 6px rgba(0,0,0,.10);
+  box-shadow:0 16px 40px -12px rgba(0,0,0,.40),0 4px 12px rgba(0,0,0,.18);
   max-height:250px;overflow-y:auto;padding:var(--sp-3)}
 .dsel.on .dpanel{display:block}
 .dsel .dopt{padding:var(--sp-5) var(--sp-6);border-radius:var(--r-md);font-size:var(--fs-base);color:var(--fg);
@@ -625,7 +645,8 @@ input,textarea{-webkit-user-select:auto;user-select:auto}
 #dbPage .modebar.on .mfilter .mf-tx{color:var(--acc)}
 #dbPage .modebar.on .mf-ar{transform:rotate(180deg)}
 #dbPage .mfdrop{display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:var(--z-drop);
-  background:var(--card);border:1px solid var(--line);border-radius:var(--r-xl);box-shadow:var(--shadow);padding:var(--sp-3)}
+  background:var(--card);border:1px solid var(--accLine);border-radius:var(--r-xl);
+  box-shadow:0 16px 40px -12px rgba(0,0,0,.40),0 4px 12px rgba(0,0,0,.18);padding:var(--sp-3)}
 #dbPage .modebar.on .mfdrop{display:block}
 #dbPage .mfopt{display:flex;align-items:center;gap:var(--sp-4);width:100%;padding:var(--sp-5) var(--sp-6);border-radius:var(--r-md);
   font-size:var(--fs-base);color:var(--fg);text-align:left}
@@ -1083,13 +1104,18 @@ button,.swx,.chead.tap,.abqq,.tal,.diff,#dbList .dbrow,#dbgDb .drow,#scRec .rcca
         开合逻辑一个字没动 —— 仍是 display 的 none ↔ 默认值切换，
         只是在「显示」那一帧叠 260ms 的 fade + 4px 上移（规范 4.3 的展开/折叠）。
         折叠方向保留为瞬间收起：要做高度过渡就得引入第二套状态（height/grid + 定时器），
-        会和现有 foldToggle 的显示断言打架，风险大于收益，故只做进场方向。 */
+会和现有 foldToggle 的显示断言打架，风险大于收益，故只做进场方向。
+        务必用 backwards 而不是 both：unfoldIn 的结束帧是 opacity:1 / transform:none（元素自然态），
+        用 both 会让 forwards 一直「填充」transform，使 .fm / .cbody 各自创建 stacking context，
+        于是 .dsel 的 z-index 被锁死在自身 .fm 内、跨不过下一个 .fm ——
+        设置页里「模型名称」下拉面板会被下方「用量统计」的按钮盖住（实测的穿模现象）。
+        backwards 只保留起始帧、结束即交还样式，视觉毫无差别，却不再产生层叠隔离。 */
 @keyframes unfoldIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
 #modal .card:not(.fold) > *:not(.chead),
 #dbgPage .card:not(.fold) > *:not(.chead),
 #dbPage .card:not(.fold) > .cbody,
 #dbList .dbcard:not(.fold) > .cbody,
-#dbgDb .dsrcc:not(.fold) > .cbody{animation:unfoldIn var(--dur-layer) var(--ease-out) both}
+#dbgDb .dsrcc:not(.fold) > .cbody{animation:unfoldIn var(--dur-layer) var(--ease-out) backwards}
 
 /* ⑥-2c 省电 / 切后台：装饰性动画只在「前台且电量健康」时跑。
         html.quiet 由 visibilitychange 打开（进后台），html.eco 由电量 ≤15% 且未充电时打开。
@@ -1130,8 +1156,8 @@ html.eco .screen.on .foot,html.eco #modal .card:not(.fold) > *:not(.chead){
 /* 主菜单：标题分三段、菜单按钮逐个入场。每次回到主页都会重播，像「重新翻开」。
    用 backwards：延迟期间先按起始态藏住，动画一结束就交还样式，
    这样按压反馈（:active 的缩放）不会被动画的结束态永久占住。 */
-#scMenu.on .logo .lg1{animation:logoIn .45s var(--ease-out) backwards}
-#scMenu.on .logo .lg2{animation:logoIn .45s .06s var(--ease-out) backwards}
+#scMenu.on .logo .lg1{animation:logoIn .45s var(--ease-out) backwards,logoShine 5s 1.2s ease-in-out infinite alternate}
+#scMenu.on .logo .lg2{animation:logoIn .45s .06s var(--ease-out) backwards,logoShine 5s 1.35s ease-in-out infinite alternate}
 #scMenu.on .logo .sub{animation:logoIn .4s .14s var(--ease-out) backwards}
 #scMenu.on .menu-list .mbtn{animation:cardIn .4s var(--ease-out) backwards}
 #scMenu.on .menu-list .mbtn:nth-child(1){animation-delay:.10s}
@@ -1193,8 +1219,21 @@ html.eco .screen.on .foot,html.eco #modal .card:not(.fold) > *:not(.chead){
         否则会反过来播一遍「退出」动画。 */
 #dbPage.on,#aboutPage.on,#dbgPage.on,#dbgDb.on,#bootPage.on,#tkPage.on{
   animation:ovlIn var(--dur-slow) var(--ease-out) both}
-#dbPage.on .page,#aboutPage.on .page,#dbgPage.on .page,#dbgDb .page,#tkPage.on .page{
+#dbPage.on .page,#aboutPage.on .page,#dbgPage.on .page,#dbgDb .page{
   animation:scIn var(--dur-page) var(--ease-out) both}
+/* Token 统计页改为「整页淡入 + 内容自上而下逐块浮入」，比整页平移到位的层次更清楚。
+   用 backwards 而不是 both：both 会把结束帧的 transform 一直填充下去，使每块各自
+   创建层叠上下文（设置页下拉被下方按钮盖住，就是这个坑）。 */
+#tkPage.on .page > *{animation:scIn var(--dur-layer) var(--ease-out) backwards}
+#tkPage.on .page > *:nth-child(2){animation-delay:.05s}
+#tkPage.on .page > *:nth-child(3){animation-delay:.10s}
+#tkPage.on .page > *:nth-child(4){animation-delay:.15s}
+/* Token 统计按钮：图标改成与全站一致的 SVG（原来那个 ▤ 是页面里唯一的「字符图标」，
+   字体缺该字形时会渲染成空心方块，就是截图里那个正方形）。同时给它一次专属入场：
+   比所在 .fm 晚 60ms 轻轻上浮出现，避免整块内容「啪」地一起顶出来。 */
+#modal button.note.acc .ic{width:18px;height:18px;fill:currentColor;
+  display:inline-block;vertical-align:-3px;margin-right:6px}
+#modal button.note.acc{animation:unfoldIn var(--dur-layer) var(--ease-out) .06s backwards}
 #bootPage.on .btitle,#bootPage.on .bpct,#bootPage.on .btip,#bootPage.on .bdots{
   animation:scIn var(--dur-slow) var(--ease-out) backwards}
 

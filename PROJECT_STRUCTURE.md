@@ -92,6 +92,7 @@ sh runall_fast.sh           # 并行版，4 个同时跑，约 3 分钟
 | `gender-system.js` | 性别体系（需求 27/28） |
 | `new-database.js` | 调试页完整数据库三类来源 |
 | `patch54-57.js` | 历史补丁收尾自检 |
+| `v002-features.js` | v0.0.2 需求自检（开局不自动播放 / AI 交互事件入队 / 抉择节流与放大） |
 
 **`tests/features/`（中）**
 
@@ -141,6 +142,7 @@ dev/
 │   ├── check_req.py         检查 req 字段
 │   ├── gen_builtin_ev.py    生成内置事件块
 │   ├── gen_reinject.py      生成重注入数据
+│   ├── ev_reinject.txt      重注入数据产物（由 gen_reinject.py 写出）
 │   ├── reinject.py          把数据注入回游戏
 │   ├── vcheck.py            校验计数
 │   └── verify_v014.py       校验 v0.1.4
@@ -164,7 +166,10 @@ dev/
 | `CHANGELOG.md` | 更新日志 |
 | `LICENSE` | GPL-3.0 开源协议 |
 | `package.json` | 测试依赖声明（jsdom） |
-| `backups/` | 历史备份快照 |
+| `package-lock.json` | 测试依赖的锁定版本（`npm install` 生成） |
+| `node_modules/` | 测试依赖本体（jsdom 等），删了重跑 `npm install` 即可 |
+| `gradle.properties` | Gradle 参数（含 aapt2 覆盖路径，别乱改） |
+| `local.properties` | 本机 SDK 路径（换电脑要重新生成） |
 | `gradle/` | Gradle 自带的 wrapper |
 
 ---

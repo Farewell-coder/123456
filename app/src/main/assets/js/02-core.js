@@ -22,6 +22,7 @@
 /* ========== 配置 ========== */
 const DEF_CFG = {
   on:false, prefetch:true, theme:'auto', vol:0, spd:420, cdt:true, ai:50,
+  expKey:false,   /* 「导出含密钥」开关：默认关（安全），由用户主动打开并被记住 */
   active:'默认配置', provider:'',
   profiles:{'默认配置':{base:'', model:'', key:''}}
 };
@@ -570,7 +571,7 @@ function goState(s){
   /* 新旧页重叠衔接：把上一屏留在原地垫底反向淡出（CSS .screen.leaving），
      两端重叠 260ms，中间不露底色 —— 规范里「禁止白屏闪一下」就靠这一步。
      系统开了「减少动画」时不挂：那时动画被全局禁用，留在原地反而多显示 400ms。 */
-  const reduce = !!(window.matchMedia && matchMedia('(prefers-reduced-motion:reduce)').matches);
+  const reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion:reduce)').matches);
   if(!reduce) prev.forEach(screenLeave);
   window.scrollTo(0, 0);
   const pg = $(SCREENS[s] + ' .page');

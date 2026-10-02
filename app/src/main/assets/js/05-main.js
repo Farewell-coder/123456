@@ -507,8 +507,11 @@ async function tkAffSync(onProgress){
         const q0 = sanReq(b.it.req);
         const aff = a0.length ? a0 : (b.judge.aff || []);
         const req = q0 || genReq(b.it, b.judge);
-        if(!aff.length && !req){ skip++; }
-        else if(affWrite(b.it, aff, req)) done++; else skip++;
+        /* 需求 27：性别同样跟着补 —— 这条「没有 AI」的本地兜底路径此前漏了这一步，
+           写出的条目 sex 恒为空，性别专属事件永远抽不到（上一条 AI 分支已带 sx）。 */
+        const sx = sanSex(b.it.sex) || sexJudge(b.it);
+        if(!aff.length && !req && !sx){ skip++; }
+        else if(affWrite(b.it, aff, req, sx)) done++; else skip++;
         setP(0.5 + (i + 1) / rest.length * 0.5, '规则分类 ' + (i + 1) + '/' + rest.length);
       }
       dbRender();
@@ -1238,7 +1241,10 @@ async function openSummary(){
     attr0: Object.assign({}, S.attr0 || {}),
     logs: (S.logs || []).map(l => ({age: l.age, text: l.text, kind: l.kind, delta: l.delta, src: l.src})),
     years: lifeSpanStat().years,
-    abyss: Object.assign({}, S.abyss || {})
+    abyss: Object.assign({}, S.abyss || {}),
+    /* 本局 AI 文案条数：必须存进快照。回看时读全局 S.aiMade 会显示「当前这一局」
+       的数字（且结算离开时 S.aiMade 已被 flushAiDb 清空），与那条记录无关。 */
+    aiMade: (S.aiMade || []).length
   };
   const recIdx = pushRec(rec);   // 由 pushRec 回传索引，避免硬编码
   renderAiDbRow();     // 显示「本局待入库 N 条」，并把一键入库按钮复位
@@ -1470,8 +1476,10 @@ function openRecView(i){
   /* v0.1.3 A2：回看态不再隐藏「AI 文案入库」行 —— 保持只读呈现，不提供补收入口
      （回看态是纯只读，不写存档、不产内容库条目，这是既有契约） */
   const n1 = $('#ovAiDbN');
-  if(n1) n1.textContent = aiMadeCount()
-    ? ('历史记录 · 本局曾产出 ' + aiMadeCount() + ' 条 AI 文案（只读）')
+  /* 读快照而非全局：旧记录没有 aiMade 字段时按 0 处理（显示「没有」），自然兼容。 */
+  const aiN = Number(r.aiMade) || 0;
+  if(n1) n1.textContent = aiN
+    ? ('历史记录 · 本局曾产出 ' + aiN + ' 条 AI 文案（只读）')
     : '历史记录 · 本局没有 AI 生成的文案';
   const row = $('#ovAiDbRow'); if(row) row.classList.remove('off');
   const rBtn = $('#ovAiDbBtn');
@@ -1584,7 +1592,9 @@ function exportSave(){
          性别 / 机遇档 / 年度计数 / 本局 AI 文案 / 深渊值 / 人生大纲全部归零 */
       sex: S.sex, hid: S.hid, fort: S.fort,
       yearN: S.yearN, yearCnt: S.yearCnt, yearEvN: S.yearEvN, yearAttr: S.yearAttr,
-      aiMade: S.aiMade, abyss: S.abyss, outline: S.outline,
+      /* 暗线大纲属「不剧透」内容（需求 C）：导出存档不携带它，读别人的档也看不到走向；
+         导入后若开着 AI，buildOutline 会按本局角色重新生成一条，功能不缺失。 */
+      aiMade: S.aiMade, abyss: S.abyss,
       logs: S.logs.slice(-200)
     } : null,
     dex: getDex(),
@@ -1739,6 +1749,7 @@ function saveProfile(){
   c.on = swxGet('cfgOn');
     c.vol = Number($('#cfgVol').value) || 0;
     c.hap = swxGet('cfgHap') ? 1 : 0;   /* 触感反馈全局开关（默认开） */
+  c.expKey = swxGet('expKey');        /* 「导出含密钥」开关必须落进 cfg，否则重开设置就丢 */
   c.spd = c.spd || 420;
   c.ai = clamp(Number($('#cfgAi').value) || 0, 0, 100);
   c.profiles[c.active] = {
@@ -1763,7 +1774,7 @@ function openSetInner(){
   renderProfiles();
   swxSet('cfgOn', !!c.on);
   swxSet('cfgHap', c.hap !== 0);
-    swxSet('expKey', false);
+    swxSet('expKey', !!c.expKey);   /* 从 cfg 恢复，不再每次强制重置为关 */
   // cfgChoice 隐藏，强制开启
   $('#cfgVol').value = c.vol || 0;
   $('#volVal').textContent = (c.vol || 0) + '%';
@@ -2602,6 +2613,9 @@ function doClearAch(){
 }
 /* 一键解锁全部成就（危险区入口） */
 function devAllAch(){
+  /* v0.0.3：无敌模式开关迁到悬浮球后，这两处的守卫被一并删掉且没有替代实现，
+     等于危险区按钮彻底裸奔 —— 补回。 */
+  if(!DEV_ON){ toast('请先开启无敌模式'); return; }
   dialog('一键解锁全部成就？', '会把成就表里的全部成就直接标记为已达成，并写进图鉴（其中带属性加成的成就，以后开局会照常生效）。', [
     {t:'全部解锁', pri:true, fn:() => {
       const n = doAchAll();
@@ -2612,6 +2626,9 @@ function devAllAch(){
 }
 /* 清空成就（危险区入口） */
 function devClearAch(){
+  /* v0.0.3：无敌模式开关迁到悬浮球后，这两处的守卫被一并删掉且没有替代实现，
+     等于危险区按钮彻底裸奔 —— 补回。 */
+  if(!DEV_ON){ toast('请先开启无敌模式'); return; }
   dialog('清空全部生涯数据？',
     '会整体重置图鉴：成就、通关次数、天赋收集、标签收集、最长寿命全部清空，此操作不可恢复。',
     [
@@ -2978,6 +2995,9 @@ function bootFinish(g, T0){
    剩下的段在后台继续跑（这就是「进游戏后 AI 仍在多线程跑」）。 */
 async function bootPrepare(g){
   const T0 = Date.now();
+  /* preTimer 必须声明在 try 之外：catch 要能在异常路径上把它清掉，
+     否则中途抛错会让 setInterval 多活约 30 秒（无人清理）。 */
+  let preTimer = null;
   try{
     bootShow('正在生成人生大纲…', 4);
     await bootWait(() => buildOutline(g), 9000);
@@ -2995,7 +3015,6 @@ async function bootPrepare(g){
     bootShow('正在预生成这一生…', 8);
     const need = Math.max(1, Math.floor(tasks.length * FILL_RATIO));
     let released = false;
-    let preTimer = null;
     const release = () => {
       if(released) return;
       released = true;
@@ -3025,6 +3044,7 @@ async function bootPrepare(g){
       }
     }).then(release, release);
   }catch(e){
+    if(preTimer){ clearInterval(preTimer); preTimer = null; }
     /* 失败也放行，本地池兜底 —— 绝不把玩家卡在读条里 */
     bootFinish(g, T0);
   }
@@ -3203,7 +3223,7 @@ if(typeof requestIdleCallback === 'function'){
   const setX = (el, px) => { el.style.transform = px ? 'translateX(' + px.toFixed(1) + 'px)' : ''; };
   /* 弹层是否挡在上面：一律按「实际能不能看见」判断，不猜类名 ——
      #tkProg 用的是 display:none 而不是 .hide，按类名判会误伤（手势永远起不来）。 */
-  const vis = id => { const e = q(id); if(!e) return false; return getComputedStyle(e).display !== 'none'; };
+  const vis = id => { const e = q(id); if(!e) return false; return window.getComputedStyle(e).display !== 'none'; };
   const overlayOpen = () =>
     ['#modal','#dlg','#dlgI','#tkProg','#tkPage','#dbPage','#aboutPage','#dbgPage','#dbgDb','#bootPage','#dbgDlg'].some(vis);
 
@@ -3361,7 +3381,7 @@ if(typeof requestIdleCallback === 'function'){
     bar.addEventListener('touchcancel', sheetEnd, {passive:true});
     /* 抽屉一关闭（任何路径：返回键、确认框、手势）就把残留状态清掉，
        否则 .held 会把下一次打开的入场动画一起压掉 */
-    new MutationObserver(() => {
+    new window.MutationObserver(() => {
       if(modal.classList.contains('on') || !mbox.classList.contains('held')) return;
       setTimeout(() => {
         if(modal.classList.contains('on')) return;
