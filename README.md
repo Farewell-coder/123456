@@ -17,6 +17,38 @@ Android 端由 WebView 壳承载，游戏本体是一套零依赖的原生 JavaS
 
 ---
 
+## 界面预览
+
+<table>
+<tr>
+<td align="center"><img src="docs/screenshots/shot8.jpg" width="200"><br><sub>主菜单</sub></td>
+<td align="center"><img src="docs/screenshots/shot1.jpg" width="200"><br><sub>选择模式</sub></td>
+<td align="center"><img src="docs/screenshots/shot5.jpg" width="200"><br><sub>抽天赋</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/screenshots/shot4.jpg" width="200"><br><sub>分配属性 · 四档难度</sub></td>
+<td align="center"><img src="docs/screenshots/shot2.jpg" width="200"><br><sub>人生日志 · 逐年推进</sub></td>
+<td align="center"><img src="docs/screenshots/shot7.jpg" width="200"><br><sub>图鉴 · 生涯成就</sub></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/screenshots/shot6.jpg" width="200"><br><sub>历史战绩</sub></td>
+<td align="center"><img src="docs/screenshots/shot3.jpg" width="200"><br><sub>设置</sub></td>
+<td></td>
+</tr>
+</table>
+
+一局人生的完整动线：**主菜单 → 选择模式 → 抽天赋 → 分配属性 → 逐年推移 → 图鉴 / 成就 / 历史战绩**。
+
+- **抽天赋** —— 开局抽 3 个词条，白 / 蓝 / 紫 / 橙 四档稀有度分色，每条都带明确数值（如 `天生丽质 颜值 +3`），整批不满意可「重抽」。
+- **分配属性** —— 四档难度各自决定初始点数与单项上限：新手档 `52 点 / 上限 20`、进阶档 `42 点 / 上限 25`、硬核档 `36 点 / 上限 30`（通关 1 次解锁）、地狱档 `30 点 / 上限 36`（通关 3 次解锁）；同时按「体质每点 +3 年」实时估算预计寿命。
+- **人生日志** —— 顶部显示年龄与阶段，左侧属性雷达图随年份变化，中央逐年追加事件；第一句就是这一生的开局：`0岁 你是个女孩，在「现代都市」出生了。天赋：【想太多】【火药桶】【天生丽质】`
+- **图鉴 · 成就** —— 跨周目累积；成就条件是结构化的（属性下限 / 标签数 / 通关次数 / 特定结局），死亡时统一结算。
+- **历史战绩** —— 每局打完留一条记录，含享年、主导属性、评级与专属结局。
+
+> 逐张配文说明见 **[docs/screenshots/](docs/screenshots/README.md)**。
+
+---
+
 ## 特性
 
 - **可离线**：自带 4605 条事件库（六阶段每段 ≥300 条），关掉 AI 也能完整走完一生
@@ -99,7 +131,7 @@ gradlew.bat assembleRelease
 
 - **作者**：aerree
 - **反馈群**：864339949
-- **版本**：v0.0.3
+- **版本**：v0.0.4
 
 ---
 
