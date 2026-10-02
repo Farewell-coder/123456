@@ -14,7 +14,7 @@
  */
 'use strict';
 /* =========================================================
-   My Life, My Sim  v0.0.4
+   My Life, My Sim  v0.0.3
    ---------------------------------------------------------
    [00-config.js] 全局配置与常量（拆分文件 1/6，最先加载）
    职责：
@@ -134,7 +134,7 @@ const WORLD_TINY = [
 '【主属性 7 项】CHR 颜值 / INT 智力 / STR 体质 / MNY 家境 / LUK 幸运 / SPR 快乐 / SOC 社交（硬边界 -15~30）。',
 'MNY 指家庭经济状况而非收入数字；SPR 是主观幸福感；SOC 是声望与人脉。EQ / WIL / MH 已退役，永不使用。'
 ].join('\n');
-const GAME_VER = '0.0.4';
+const GAME_VER = '0.0.3';
 /* 关于页信息（全工程唯一来源，index.html 里只留占位符，由 openAbout() 回填） */
 const ABOUT_AUTHOR = 'aerree';
 const ABOUT_QQ = '864339949';

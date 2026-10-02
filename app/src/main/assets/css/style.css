@@ -550,11 +550,12 @@ input,textarea{-webkit-user-select:auto;user-select:auto}
 .dsel.on .dval::after{transform:translateY(-50%) rotate(180deg)}
 /* 展开时抬升整个容器：面板是 absolute，靠这里压过同卡片内后续行 */
 .dsel.on{position:relative;z-index:var(--z-drop)}
-/* 底色必须用 --bg 而不是 --card：面板就长在 .card 内部，而 .card 本身就是 --card，
-   同色 ⇒ 看不出边界，观感就是「展开后是个透明的框」。改用页面底色 + 强调色描边，
-   再把阴影加重，层次立刻出来。 */
+/* 底色必须是 --card（浅色即 #fff），不能用 --bg：面板是 absolute，展开后会溢到
+   .card 之外，而外层容器 #modal .box 用的正是 --bg，取同色 ⇒ 面板与容器糊成一片，
+   观感就是「透明的框、字全穿模」。取 --card 后与容器拉开明暗差，再配强调色描边
+   与阴影，边界一眼可辨。末尾 #fff 是不透明兜底，防变量缺失时退化为透明。 */
 .dsel .dpanel{display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:var(--z-drop);
-  background:var(--bg);border:1px solid var(--accLine);border-radius:var(--r-xl);
+  background:var(--card,#fff);border:1px solid var(--accLine);border-radius:var(--r-xl);
   box-shadow:0 12px 30px -10px rgba(0,0,0,.30),0 2px 6px rgba(0,0,0,.10);
   max-height:250px;overflow-y:auto;padding:var(--sp-3)}
 .dsel.on .dpanel{display:block}
